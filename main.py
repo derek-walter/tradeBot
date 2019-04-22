@@ -5,11 +5,11 @@ import numpy as np
 from collections import deque
 
 # Functions
-def relu(x):
-    if x > 0:
-        return x
+def relu(x, m1=0.01, m2=1):
+    if x <= 0:
+        return m1*x
     else:
-        return 0.01*x
+        return m2*x
 
 def tanh(x):
     return (np.exp(2*x)-1)/(np.exp(2*x)+1)
@@ -30,7 +30,22 @@ def testing123(model, NN_input_size, reset=False):
         model.reset_states()
     return historyObject
 
-def Train(bot, scaler, train_data, episode_count=3, shares=0, start_cash=20000, replay_size=32):
+def save_output(name, df):
+    from time import localtime, strftime
+    import os  
+    if os.path.isdir('./output') and type(name) == str:
+        df.to_csv('output/{}{}.csv'.format(name, strftime("%Y-%m-%d{%H:%M}", localtime())))
+
+def save_bot(bot):
+    from time import localtime, strftime
+    from sklearn.externals import joblib
+    import os  
+    if os.path.isdir('./output'):
+        filename = 'output/bot_{}.csv'.format(strftime("%Y-%m-%d{%H:%M}", localtime()))
+        print('saving bot at {}\n'.format(filename))
+        joblib.dump(bot, filename)
+
+def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, replay_size=32):
     '''Notes of interest: This training procedure takes a cursor to train data, uses HER to
     Learn from past rewards. To summarize DQN, we just predict as we step through data.
     Periodically (I chose every replay_size steps), we fit on a batchsize of memories.
@@ -56,7 +71,7 @@ def Train(bot, scaler, train_data, episode_count=3, shares=0, start_cash=20000, 
     for episode in range(episode_count):
         state = np.zeros((1, window, len(state_vars) + 2)) # Allocate memory. This is of (1, #, #) for single fitting
         share_prices = deque([]) # Time Com. of O(1) for left popping...
-        #train_data.rewind()
+        train_cursor, _ = sstt_cursors(symbol)
         cash = start_cash
         count = 0
         done = False
@@ -83,7 +98,6 @@ def Train(bot, scaler, train_data, episode_count=3, shares=0, start_cash=20000, 
             temp_state = np.array([np.append(temp_state[0], can_buy)])
             temp_state = np.array([np.append(temp_state[0], can_sell)])
             state[0][0,:] = temp_state
-            print('State: \n', state)
             if count >= window: # Start Bot once state is full enough
                 actions = bot.predict(previous_state)
                 # Exploration
@@ -110,9 +124,9 @@ def Train(bot, scaler, train_data, episode_count=3, shares=0, start_cash=20000, 
                     cash += curr_price
                     shares -= 1
                     profit = curr_price - share_prices.popleft()
-                    reward = relu(profit) # Future Action-Value needs to be appended in HER
+                    reward = relu(profit, m2 = 0.1) # Future Action-Value needs to be appended in HER
                 else: # Hold
-                    reward = curr_change*0.1
+                    reward = relu(curr_change)
                 # It is important to note the memory deque is 1000 long.
                 bot.memory.append((previous_state, action, reward, state, done))
                 # Hindsight Experience Replay
@@ -133,11 +147,17 @@ def Train(bot, scaler, train_data, episode_count=3, shares=0, start_cash=20000, 
                             targets[0][batch_action] += batch_reward
                         history = bot.fit(batch_state, targets, batch_size=1, epochs=1)
                         this_log = this_log.append({'Loss':history.history['loss'][0], 'Reward':batch_reward, 'Epsilon':round(epsilon, 5)}, ignore_index = True)
-            count += 1
+            if done:
+                save_output('this_log', this_log)
+                break
+            else:
+                print('Count: ', count, '\n')
+                count += 1
         else:
             '''Wow! It Made it!'''
             print('The Bot Survived.')
         print('Episode: ', episode)
+        save_output('this_log_episodes', this_log)
     return bot, this_log
 
 def Test(bot, scaler, test_data, shares=0, start_cash=20000):
@@ -214,7 +234,7 @@ def Test(bot, scaler, test_data, shares=0, start_cash=20000):
 
 if __name__ == "__main__":
     import pandas as pd
-    from sklearn.externals import joblib
+    from sklearn.externals import joblib 
     sys.path.append("./src")
     from Bots import Bot_LSTM
     from mongo import sstt_cursors
@@ -223,14 +243,15 @@ if __name__ == "__main__":
     bot = Bot_LSTM((14, len(state_vars)+2))
     scaler = joblib.load("resources/tech_scaler.pkl")
     '''Train'''
-    #for stock in stocks:
-    train_cursor, test_cursor = sstt_cursors('AAPL')
     # The flow of train is to train a bot on a stock and get back the bot, with a PD.DataFrame log
     # Ideally this would continue for numerous stocks for one bot.
-    episodes = 3
-    bot, train_log = Train(bot, scaler, train_cursor)
+    episodes = 1
+    bot, train_log = Train(bot, scaler, 'AAPL')
     '''Test'''
-    portfolio_log = Test(bot, scaler, test_cursor)
+    #_, test_cursor = sstt_cursors('AAPL')
+    #portfolio_log = Test(bot, scaler, test_cursor)
+    '''Save'''
+    save_bot(bot)
     '''
     x Make scaler on all stocks
     x Download Stock Data to Dict
