@@ -126,10 +126,34 @@ class Bot_LSTM(Sequential):
         # This inherits from Sequential. Don't think I need super() but may be more stable
         super().__init__()
         self.add(LSTM(units=32, input_shape=self.NN_input_shape, return_sequences = True))
-        self.add(LSTM(units=16, return_sequences = True))
+        self.add(LSTM(units=32, return_sequences=True))
         self.add(LSTM(units=8))
         self.add(Dense(self.action_space, activation="linear"))
+        self.compile(loss="mse", optimizer=Adam(lr=0.1))
+        '''Loss Skyrocketing, Predictions in Billions
+        super().__init__()
+        self.add(LSTM(units=32, input_shape=self.NN_input_shape, return_sequences = True))
+        self.add(LSTM(units=32))
+        self.add(Dense(units=16, activation = 'linear'))
+        self.add(Dense(self.action_space, activation="linear"))
+        self.compile(loss="mse", optimizer=Adam(lr=0.1))
+        '''
+        '''All Buy (Note Epsilon Change form decay to const 0.2) Changed LR
+        super().__init__()
+        self.add(LSTM(units=64, input_shape=self.NN_input_shape, return_sequences = True))
+        self.add(LSTM(units=32, return_sequences = True))
+        self.add(LSTM(units=16))
+        self.add(Dense(self.action_space, activation="linear"))
         self.compile(loss="mse", optimizer=Adam(lr=0.001))
+        '''
+        '''All Sell
+        super().__init__()
+        self.add(LSTM(units=64, input_shape=self.NN_input_shape, return_sequences = True))
+        self.add(LSTM(units=32, return_sequences = True))
+        self.add(LSTM(units=16))
+        self.add(Dense(self.action_space, activation="linear"))
+        self.compile(loss="mse", optimizer=Adam(lr=0.001))
+        '''
 
     def my_save(self, directory):
         '''Given a valid directory in scope, say resources (no slash) this method will

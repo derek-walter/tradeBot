@@ -34,14 +34,14 @@ def save_output(name, df):
     from time import localtime, strftime
     import os  
     if os.path.isdir('./output') and type(name) == str:
-        df.to_csv('output/{}{}.csv'.format(name, strftime("%Y-%m-%d{%H:%M}", localtime())))
+        df.to_csv('output/{}{}.csv'.format(name, strftime("%Y-%m-%d{%H-%M}", localtime())))
 
 def save_bot(bot):
     from time import localtime, strftime
     import pickle
     import os  
     if os.path.isdir('./output'):
-        filename = 'output/bot_{}.pickle'.format(strftime("%Y-%m-%d{%H:%M}", localtime()))
+        filename = 'output/bot_{}.pickle'.format(strftime("%Y-%m-%d{%H-%M}", localtime()))
         print('saving bot at {}\n'.format(filename))
         with open(filename, 'wb') as f:
             # Pickle the 'data' dictionary using the highest protocol available.
@@ -65,9 +65,9 @@ def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, repl
         raise ValueError('Window cannot be larger than replay size.')
     state_vars = ['change', 'close_vwap', 'high_low', 'open_close', 'volume']
     # Create Log
-    this_log = pd.DataFrame(columns = ['Loss', 'Reward', 'Epsilon'])
+    this_log = pd.DataFrame(columns = ['Loss', 'Reward', 'Epsilon', 'Cash', 'Shares'])
     # Routine Setup
-    epsilon = 0.99
+    epsilon = 0.2
     discount = 0.95
     options = ['buy', 'sell', 'hold']
     for episode in range(episode_count):
@@ -111,12 +111,13 @@ def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, repl
                     action = np.argmax(actions)
                     choice = options[action]
                 # Exploration Decay
-                if epsilon > 0.1:
-                    epsilon -= 0.01
-                    print('Epsilon: ', round(epsilon, 5))
-                else:
-                    epsilon = 0.1
+                # if epsilon > 0.1:
+                #     epsilon -= 0.01
+                #     print('Epsilon: ', round(epsilon, 5))
+                # else:
+                #     epsilon = 0.1
                 # Reward Engineering [Buy, Sell, Hold] (0, 1, 2)
+                reward = 0
                 if choice=='buy' and cash > curr_price: # Buy
                     cash -= curr_price
                     shares += 1
@@ -126,9 +127,9 @@ def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, repl
                     cash += curr_price
                     shares -= 1
                     profit = curr_price - share_prices.popleft()
-                    reward = relu(profit, m2 = 0.1) # Future Action-Value needs to be appended in HER
+                    reward = relu(profit, m1=0.1, m2 = 0.1) # Future Action-Value needs to be appended in HER
                 else: # Hold
-                    reward = relu(curr_change)
+                    reward = 0 # relu(curr_change)
                 # It is important to note the memory deque is 1000 long.
                 bot.memory.append((previous_state, action, reward, state, done))
                 # Hindsight Experience Replay
@@ -148,7 +149,12 @@ def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, repl
                             # Just saving the return
                             targets[0][batch_action] += batch_reward
                         history = bot.fit(batch_state, targets, batch_size=1, epochs=1)
-                        this_log = this_log.append({'Loss':history.history['loss'][0], 'Reward':batch_reward, 'Epsilon':round(epsilon, 5)}, ignore_index = True)
+                        this_log = this_log.append({'Loss':history.history['loss'][0], 
+                                                    'Reward':batch_reward, 
+                                                    'Epsilon':round(epsilon, 5), 
+                                                    'Cash':cash,
+                                                    'Shares':len(share_prices)},
+                                                    ignore_index = True)
             if done:
                 save_output('this_log', this_log)
                 break
@@ -158,7 +164,7 @@ def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, repl
         else:
             '''Wow! It Made it!'''
             print('The Bot Survived.')
-        print('Episode: ', episode)
+            print('Episode: ', episode)
         save_output('this_log_episodes', this_log)
     return bot, this_log
 
@@ -178,7 +184,7 @@ def Test(bot, scaler, test_data, shares=0, start_cash=20000):
     window = bot.NN_input_shape[0]
     state_vars = ['change', 'close_vwap', 'high_low', 'open_close', 'volume']
     # Create Log
-    portfolio_log = pd.DataFrame(columns = ['Action', 'Reward', 'Shares', 'Cash', 'Close'])
+    portfolio_log = pd.DataFrame(columns = ['Action', 'Shares', 'Cash', 'Profits', 'Close'])
     # Routine Setup
     options = ['buy', 'sell', 'hold']
     state = np.zeros((1, window, len(state_vars) + 2))
@@ -212,6 +218,8 @@ def Test(bot, scaler, test_data, shares=0, start_cash=20000):
         state[0][0,:] = temp_state
         if count >= window and not done: # Start Bot once state is full enough
             actions = bot.predict(previous_state)
+            print('State: \n', state, '\n')
+            print('Actions: \n', actions, '\n')
             action = np.argmax(actions)
             choice = options[action]
             # No Exploration
@@ -227,6 +235,9 @@ def Test(bot, scaler, test_data, shares=0, start_cash=20000):
             else:
                 profits += curr_change
             portfolio_log = portfolio_log.append({'Action':choice, 'Shares':shares, 'Cash':cash, 'Profits':profits, 'Close':curr_price}, ignore_index = True)
+        elif done:
+            print('Bot Died...')
+            break
         count += 1
     else:
         '''Wow! It Made it!'''
@@ -249,24 +260,41 @@ if __name__ == "__main__":
     # The flow of train is to train a bot on a stock and get back the bot, with a PD.DataFrame log
     # Ideally this would continue for numerous stocks for one bot.
     episodes = 1
-    bot, train_log = Train(bot, scaler, 'AAPL')
-    bot.my_save('./output')
-    weights_filename = bot.weights_filename
-    '''Test'''
-    test_bot = Bot_LSTM((14, len(state_vars)+2), weights_filename=weights_filename)
+    bot, train_log = Train(bot, scaler, 'AAPL', episode_count=episodes)
     _, test_cursor = sstt_cursors('AAPL')
     portfolio_log = Test(bot, scaler, test_cursor)
-    '''Save'''
-    save_bot(bot)
-    '''
-    x Make scaler on all stocks
-    x Download Stock Data to Dict
-    x Insert into MongoDB
+    #train_log.drop(columns = 'Unnamed: 0', inplace=True)
+    bot.my_save('./output')
+    #save_output('train_aapl2', train_log)
+    #weights_filename = './output/bot_LSTM_2019-04-22{14-11}.h5'
+    # '''Test'''
+    #test_bot = Bot_LSTM((14, len(state_vars)+2), weights_filename=weights_filename)
+    #portfolio_log.drop(columns = 'Unnamed: 0', inplace=True)
+    #save_output('test_aapl2', portfolio_log)
+    # import matplotlib.pyplot as plt 
+    # train_log.plot(figsize = (14, 8))
+    # portfolio_log.plot(figsize = (14, 8))
+    # plt.show()
+    # Drop Cash
+    import matplotlib.pyplot as plt 
+    train_log.drop(columns = 'Cash').plot(figsize = (14, 8))
+    portfolio_log.drop(columns = 'Cash').plot(figsize = (14, 8))
+    plt.show()
 
-    For each stock:
-        generate train, test
-        train
-            add log to main log
-        test
-            add to test log
+    ''' Change Log
+    Added Plotting
+    Removed Saving for now
+    Ran: 
+        Changed from 32, 16, 8 to 64, 32, 8
+        Changing epsilon
+        Now predicting Sell Only
+    Ran: 
+        Changing Layer Structure
+        Two LSTM's, one Dense with linear, into output, all same 32
+        Changed LR to 0.1 from 0.001
+        Loss and Actions skyrocketted. Going back, keeping LR
+    Ran:
+        Changed back to 32, 32, 8, action, LR = 0.1
+        Loss Higher and Quicker than before.
+        Predicts Hold Only!
     '''
