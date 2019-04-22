@@ -33,28 +33,28 @@ class Bot(Sequential):
         # Params
         self.NN_input_shape = NN_input_shape
         self.action_space = action_space
-        self.weights_filename = weights_filename
         self.verbose = verbose
         self.memory = deque(maxlen=1000)
         # Init
-        if not weights_filename:
-            print('Creating Model...')
-            # This inherits from Sequential. Don't think I need super() but may be more stable
-            Sequential.__init__(self)
-            self.add(Dense(units=64, input_shape=self.NN_input_shape, activation="relu"))
-            self.add(Dense(units=32, activation="relu"))
-            self.add(Dense(units=8, activation="relu"))
-            self.add(Dense(self.action_space, activation="sigmoid"))
-            self.compile(loss="mse", optimizer=Adam(lr=0.001))
-        else:
-            # Does not work at this time. How to assign model (not weight) h5 to self?
+        self.make()
+        if weights_filename:
+            self.weights_filename = weights_filename
             print('Loading Model Weights...')
-            self.load_weights(self.weights_filename)
-            self.compile(loss="mse", optimizer=Adam(lr=0.001))
+            self.load_weights(weights_filename)
         if self.verbose:
             print(self.summary())
     
-    def save(self, directory):
+    def make(self):
+        print('Creating Model...')
+        # This inherits from Sequential. Don't think I need super() but may be more stable
+        super().__init__()
+        self.add(Dense(units=64, input_shape=self.NN_input_shape, activation="relu"))
+        self.add(Dense(units=32, activation="relu"))
+        self.add(Dense(units=8, activation="relu"))
+        self.add(Dense(self.action_space, activation="linear"))
+        self.compile(loss="mse", optimizer=Adam(lr=0.001))
+    
+    def my_save(self, directory):
         '''Given a valid directory in scope, say resources (no slash) this method will
         save the model level h5 (as opposed to the weight level h5 for a given architecture)
         and append the filename with the timestamp.
@@ -62,10 +62,13 @@ class Bot(Sequential):
         Returns: None
         '''
         if isdir(directory):
-            self.save(directory + '/bot_{}.h5'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+            if directory[-1] != '/':
+                self.save_weights(directory + '/bot_LSTM_{}.h5'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+            else:
+                self.save_weights(directory + 'bot_LSTM_{}.h5'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
         else:
             print('not a directory')
-    
+
     def remember(self, memory):
         '''Typically in the form:
             (state, action, reward, new_state)
@@ -111,28 +114,24 @@ class Bot_LSTM(Sequential):
         self.verbose = verbose
         self.memory = deque(maxlen=1000)
         # Init
-        if not weights_filename:
-            print('Creating Model...')
-            # This inherits from Sequential. Don't think I need super() but may be more stable
-            Sequential.__init__(self)
-            self.add(LSTM(units=32, input_shape=self.NN_input_shape, return_sequences = True))
-            self.add(LSTM(units=16, return_sequences = True))
-            self.add(LSTM(units=8))
-            self.add(Dense(self.action_space, activation="softmax"))
-            self.compile(loss="mse", optimizer=Adam(lr=0.001))
-        else:
-            # Does not work at this time. How to assign model (not weight) h5 to self?
+        self.make()
+        if weights_filename:
             print('Loading Model Weights...')
-            Sequential.__init__(self)
-            self.add(LSTM(units=32, input_shape=self.NN_input_shape, return_sequences = True))
-            self.add(LSTM(units=16, return_sequences = True))
-            self.add(LSTM(units=8))
-            self.add(Dense(self.action_space, activation="softmax"))
             self.load_weights(weights_filename)
         if self.verbose:
             print(self.summary())
     
-    def save(self, directory):
+    def make(self):
+        print('Creating Model...')
+        # This inherits from Sequential. Don't think I need super() but may be more stable
+        super().__init__()
+        self.add(LSTM(units=32, input_shape=self.NN_input_shape, return_sequences = True))
+        self.add(LSTM(units=16, return_sequences = True))
+        self.add(LSTM(units=8))
+        self.add(Dense(self.action_space, activation="linear"))
+        self.compile(loss="mse", optimizer=Adam(lr=0.001))
+
+    def my_save(self, directory):
         '''Given a valid directory in scope, say resources (no slash) this method will
         save the model level h5 (as opposed to the weight level h5 for a given architecture)
         and append the filename with the timestamp.
@@ -140,7 +139,10 @@ class Bot_LSTM(Sequential):
         Returns: None
         '''
         if isdir(directory):
-            self.save(directory + '/bot_{}.h5'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+            if directory[-1] != '/':
+                self.save_weights(directory + '/bot_LSTM_{}.h5'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+            else:
+                self.save_weights(directory + 'bot_LSTM_{}.h5'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
         else:
             print('not a directory')
     

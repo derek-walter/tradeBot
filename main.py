@@ -38,12 +38,14 @@ def save_output(name, df):
 
 def save_bot(bot):
     from time import localtime, strftime
-    from sklearn.externals import joblib
+    import pickle
     import os  
     if os.path.isdir('./output'):
-        filename = 'output/bot_{}.csv'.format(strftime("%Y-%m-%d{%H:%M}", localtime()))
+        filename = 'output/bot_{}.pickle'.format(strftime("%Y-%m-%d{%H:%M}", localtime()))
         print('saving bot at {}\n'.format(filename))
-        joblib.dump(bot, filename)
+        with open(filename, 'wb') as f:
+            # Pickle the 'data' dictionary using the highest protocol available.
+            pickle.dump(bot, f, pickle.HIGHEST_PROTOCOL)
 
 def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, replay_size=32):
     '''Notes of interest: This training procedure takes a cursor to train data, uses HER to
@@ -75,7 +77,7 @@ def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, repl
         cash = start_cash
         count = 0
         done = False
-        for item in train_data:
+        for item in train_cursor:
             curr_price = item['data']['close']
             curr_change = item['data']['change']
             # End Conditions (can't buy & can't sell)
@@ -181,7 +183,6 @@ def Test(bot, scaler, test_data, shares=0, start_cash=20000):
     options = ['buy', 'sell', 'hold']
     state = np.zeros((1, window, len(state_vars) + 2))
     share_prices = deque([]) # Time Com. of O(1) for left popping...
-    #test_data.rewind()
     cash = start_cash
     profits = 0
     count = 0
@@ -189,6 +190,9 @@ def Test(bot, scaler, test_data, shares=0, start_cash=20000):
     for item in test_data:
         curr_price = item['data']['close']
         curr_change = item['data']['change']
+        # End Conditions (can't buy & can't sell)
+        if cash < curr_price and len(share_prices) == 0:
+            done = True
         # Simple window: Have state going back in time, save that, shift down, ammend this step
         previous_state = state
         state[0][1:,:] = state[0][:-1, :]
@@ -222,10 +226,8 @@ def Test(bot, scaler, test_data, shares=0, start_cash=20000):
                 profits += curr_price - share_prices.popleft()
             else:
                 profits += curr_change
+            portfolio_log = portfolio_log.append({'Action':choice, 'Shares':shares, 'Cash':cash, 'Profits':profits, 'Close':curr_price}, ignore_index = True)
         count += 1
-        if cash < curr_price and len(share_prices) == 0:
-            done = True
-        portfolio_log = portfolio_log.append({'Action':choice, 'Shares':shares, 'Cash':cash, 'Profits':profits, 'Close':curr_price}, ignore_index = True)
     else:
         '''Wow! It Made it!'''
         print('The Bot Survived.')
@@ -235,6 +237,7 @@ def Test(bot, scaler, test_data, shares=0, start_cash=20000):
 if __name__ == "__main__":
     import pandas as pd
     from sklearn.externals import joblib 
+    import pickle
     sys.path.append("./src")
     from Bots import Bot_LSTM
     from mongo import sstt_cursors
@@ -247,9 +250,12 @@ if __name__ == "__main__":
     # Ideally this would continue for numerous stocks for one bot.
     episodes = 1
     bot, train_log = Train(bot, scaler, 'AAPL')
+    bot.my_save('./output')
+    weights_filename = bot.weights_filename
     '''Test'''
-    #_, test_cursor = sstt_cursors('AAPL')
-    #portfolio_log = Test(bot, scaler, test_cursor)
+    test_bot = Bot_LSTM((14, len(state_vars)+2), weights_filename=weights_filename)
+    _, test_cursor = sstt_cursors('AAPL')
+    portfolio_log = Test(bot, scaler, test_cursor)
     '''Save'''
     save_bot(bot)
     '''
