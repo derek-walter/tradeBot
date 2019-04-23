@@ -68,7 +68,7 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
     this_log = pd.DataFrame(columns = ['Loss', 'Reward', 'Epsilon', 'Cash', 'Shares'])
     # Routine Setup
     epsilon = 1
-    discount = 0.95
+    discount = 0.1 #0.95
     options = ['buy', 'sell', 'hold']
     for episode in range(episode_count):
         state = np.zeros((1, window, len(state_vars) + 2)) # Allocate memory. This is of (1, #, #) for single fitting
@@ -78,6 +78,7 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
         count = 0
         done = False
         for item in train_cursor:
+            print(item['data']['date'])
             curr_price = item['data']['close']
             curr_change = item['data']['change']
             value = len(share_prices)*curr_price + cash
@@ -144,14 +145,17 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                         if not batch_done:
                             # Adjusting target by return and discounted future return
                             # Must += instead of reassigning rewards because reward could be zero or negative
-                            targets[0][batch_action] += batch_reward #+ discount*np.max(action_value)
+                            if use_reward:
+                                targets[0][batch_action] += batch_reward + discount*np.max(action_value)
+                            else:
+                                targets[0][batch_action] += batch_reward
                         else:
                             # Just saving the return
                             targets[0][batch_action] += batch_reward
-                        history = bot.fit(batch_state, targets, batch_size=1, epochs=1)
+                        history = bot.fit(batch_state, targets, batch_size=1, epochs=1, shuffle=False)
                         this_log = this_log.append({'Loss':history.history['loss'][0], 
                                                     'Reward':batch_reward, 
-                                                    'Value':value, 
+                                                    'Epsilon':epsilon, 
                                                     'Cash':cash,
                                                     'Shares':len(share_prices)},
                                                     ignore_index = True)
@@ -242,6 +246,67 @@ def Test(bot, scaler, test_data, state_vars, shares=0, start_cash=20000):
         print('The Bot Survived.')
     return portfolio_log
 
+def Test_random(bot, test_data, shares=0, start_cash=20000):
+    '''Notes of interest: This training procedure takes a cursor to train data, uses HER to
+    Learn from past rewards. To summarize DQN, we just predict as we step through data.
+    Periodically (I chose every replay_size steps), we fit on a batchsize of memories.
+    Parameters:
+        bot: actual capable bot object
+        scaler: some scaler object fit to data coming in
+        train_data: Cursor to specific db data (like output query of train data).
+        window: Legth of timesteps for bot
+        shares: Number of starting stock shares for little bot
+        cash: amount of starting cash
+        replay_size: Batch size for HER
+    '''
+    window = bot.NN_input_shape[0]
+    # Create Log
+    portfolio_log = pd.DataFrame(columns = ['Value', 'Action', 'Shares', 'Cash', 'Profits', 'Close'])
+    # Routine Setup
+    options = ['buy', 'sell', 'hold']
+    share_prices = deque([]) # Time Com. of O(1) for left popping...
+    cash = start_cash
+    profits = 0
+    count = 0
+    done = False
+    for item in test_data:
+        curr_price = item['data']['close']
+        curr_change = item['data']['change']
+        value = len(share_prices)*curr_price + cash
+        # End Conditions (can't buy & can't sell)
+        if cash < curr_price and len(share_prices) == 0:
+            done = True
+        # Generating State Vars
+        if cash > curr_price:
+            can_buy = 1
+        else:
+            can_buy = 0
+        if len(share_prices) >= 1:
+            can_sell = 1
+        else:
+            can_sell = 0
+        if count >= window and not done: # Start Bot once state is full enough
+            action = random.randrange(len(options))
+            choice = options[action]
+            # No Exploration
+            # Reward Engineering [Buy, Sell, Hold/Do Nothing] (0, 1, 2)
+            if choice=='buy' and cash > curr_price:
+                cash -= curr_price
+                shares += 1
+                share_prices.append(curr_price)
+            elif choice=='sell' and shares > 0: 
+                cash += curr_price
+                shares -= 1
+                profits += curr_price - share_prices.popleft()
+            portfolio_log = portfolio_log.append({'Value':value, 'Action':choice, 'Shares':shares, 'Cash':cash, 'Profits':profits, 'Close':curr_price}, ignore_index = True)
+        elif done:
+            print('Bot Died...')
+            break
+        count += 1
+    else:
+        '''Wow! It Made it!'''
+        print('The Bot Survived.')
+    return portfolio_log
 
 if __name__ == "__main__":
     import pandas as pd
@@ -259,12 +324,14 @@ if __name__ == "__main__":
     # The flow of train is to train a bot on a stock and get back the bot, with a PD.DataFrame log
     # Ideally this would continue for numerous stocks for one bot.
     episodes = 1
-    bot, train_log_random = Train(bot, scaler, 'AMD', state_vars, episode_count=episodes)
-    _, test_cursor = sstt_cursors('AAPL')
-    portfolio_log_random = Test(bot, scaler, test_cursor, state_vars)
-    bot, train_log = Train(bot, scaler, 'AMD', state_vars, episode_count=episodes, use_reward=True)
-    _, test_cursor = sstt_cursors('AAPL')
+    bot_r, train_log_random = Train(bot, scaler, 'MSFT', state_vars, episode_count=episodes)
+    _, test_cursor = sstt_cursors('MSFT')
+    portfolio_log_random = Test(bot_r, scaler, test_cursor, state_vars)
+    bot, train_log = Train(bot, scaler, 'MSFT', state_vars, episode_count=episodes, use_reward=True)
+    _, test_cursor = sstt_cursors('MSFT')
     portfolio_log = Test(bot, scaler, test_cursor, state_vars)
+    _, test_cursor = sstt_cursors('MSFT')
+    random_log = Test_random(bot, test_cursor)
     #train_log.drop(columns = 'Unnamed: 0', inplace=True)
     bot.my_save('./output')
     #save_output('train_aapl2', train_log)
@@ -279,14 +346,15 @@ if __name__ == "__main__":
     # plt.show()
     # Drop Cash
     import matplotlib.pyplot as plt 
-    train_plot_random = train_log_random.drop(columns = ['Cash', 'Value'])
-    train_plot = train_log.drop(columns = ['Cash', 'Value'])
+    train_plot_random = train_log_random.drop(columns = ['Cash'])
+    train_plot = train_log.drop(columns = ['Cash'])
     test_plot_random = portfolio_log_random.drop(columns = ['Cash', 'Value'])
     test_plot = portfolio_log.drop(columns = ['Cash', 'Value'])
-    train_plot_random.plot()
-    train_plot.plot()
-    test_plot_random.plot()
-    test_plot.plot()
+    train_plot_random.plot(title = 'Train Plot Random')
+    train_plot.plot(title = 'Train Plot')
+    test_plot_random.plot(title = 'Test Plot Random')
+    test_plot.plot(title = 'Test Plot')
+    random_log.plot(title = 'Test Plot Random')
     plt.show()
 
     ''' Change Log
@@ -329,4 +397,5 @@ if __name__ == "__main__":
         Running once with zero fitting. 
         May do more reward engineering
     Ran: Adding reward back in. Super Tiny xabx(profit)*0.001
+    Recap: 
     '''

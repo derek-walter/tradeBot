@@ -1,7 +1,7 @@
 import pymongo
 
 '''Query Single Stock Train Test'''
-def sstt_cursors(symbol, test_fraction = 0.20):
+def sstt_cursors(symbol, test_fraction = 0.40):
     '''Single Stock Train Test Cursors. Generates cursors for train [i.e. 2006-2010] and test [i.e. 2011]
     Parameters: Symbol, Test Fraction (Test is last test_fraction portion in time increasing data.)
     Returns: Cursors, Time Increasing, For both train and test on symbol

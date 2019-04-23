@@ -128,7 +128,7 @@ class Bot_LSTM(Sequential):
         super().__init__()
         self.add(Activation('tanh', input_shape=self.NN_input_shape))
         self.add(LSTM(units=8, return_sequences = True))
-        self.add(LSTM(units=5))
+        self.add(LSTM(units=8))
         self.add(Dense(self.action_space, activation="linear"))
         self.compile(loss="mse", optimizer=Adam(lr=0.001))
         '''Worked with this for a while. But too much variance on different stocks
