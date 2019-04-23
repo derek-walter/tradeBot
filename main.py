@@ -3,6 +3,7 @@ import random
 import pandas as pd
 import numpy as np
 from collections import deque
+from time import localtime, strftime
 
 # Functions
 def relu(x, m1=0.01, m2=1):
@@ -47,7 +48,7 @@ def save_bot(bot):
             # Pickle the 'data' dictionary using the highest protocol available.
             pickle.dump(bot, f, pickle.HIGHEST_PROTOCOL)
 
-def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, replay_size=32):
+def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash=20000, replay_size=32, use_reward=False):
     '''Notes of interest: This training procedure takes a cursor to train data, uses HER to
     Learn from past rewards. To summarize DQN, we just predict as we step through data.
     Periodically (I chose every replay_size steps), we fit on a batchsize of memories.
@@ -63,11 +64,10 @@ def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, repl
     window = bot.NN_input_shape[0]
     if window > replay_size:
         raise ValueError('Window cannot be larger than replay size.')
-    state_vars = ['change', 'close_vwap', 'high_low', 'open_close', 'volume']
     # Create Log
     this_log = pd.DataFrame(columns = ['Loss', 'Reward', 'Epsilon', 'Cash', 'Shares'])
     # Routine Setup
-    epsilon = 0.2
+    epsilon = 1
     discount = 0.95
     options = ['buy', 'sell', 'hold']
     for episode in range(episode_count):
@@ -80,6 +80,7 @@ def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, repl
         for item in train_cursor:
             curr_price = item['data']['close']
             curr_change = item['data']['change']
+            value = len(share_prices)*curr_price + cash
             # End Conditions (can't buy & can't sell)
             if cash < curr_price and len(share_prices) == 0:
                 done = True
@@ -111,11 +112,11 @@ def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, repl
                     action = np.argmax(actions)
                     choice = options[action]
                 # Exploration Decay
-                # if epsilon > 0.1:
-                #     epsilon -= 0.01
-                #     print('Epsilon: ', round(epsilon, 5))
-                # else:
-                #     epsilon = 0.1
+                if epsilon > 0.1:
+                    epsilon -= 0.001
+                    print('Epsilon: ', round(epsilon, 5))
+                else:
+                    epsilon = 0.1
                 # Reward Engineering [Buy, Sell, Hold] (0, 1, 2)
                 reward = 0
                 if choice=='buy' and cash > curr_price: # Buy
@@ -127,9 +128,8 @@ def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, repl
                     cash += curr_price
                     shares -= 1
                     profit = curr_price - share_prices.popleft()
-                    reward = relu(profit, m1=0.1, m2 = 0.1) # Future Action-Value needs to be appended in HER
-                else: # Hold
-                    reward = 0 # relu(curr_change)
+                    if use_reward:
+                        reward = xabx(profit)*0.001 # Future Action-Value needs to be appended in HER
                 # It is important to note the memory deque is 1000 long.
                 bot.memory.append((previous_state, action, reward, state, done))
                 # Hindsight Experience Replay
@@ -144,14 +144,14 @@ def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, repl
                         if not batch_done:
                             # Adjusting target by return and discounted future return
                             # Must += instead of reassigning rewards because reward could be zero or negative
-                            targets[0][batch_action] += batch_reward + discount*np.max(action_value)
+                            targets[0][batch_action] += batch_reward #+ discount*np.max(action_value)
                         else:
                             # Just saving the return
                             targets[0][batch_action] += batch_reward
                         history = bot.fit(batch_state, targets, batch_size=1, epochs=1)
                         this_log = this_log.append({'Loss':history.history['loss'][0], 
                                                     'Reward':batch_reward, 
-                                                    'Epsilon':round(epsilon, 5), 
+                                                    'Value':value, 
                                                     'Cash':cash,
                                                     'Shares':len(share_prices)},
                                                     ignore_index = True)
@@ -168,7 +168,7 @@ def Train(bot, scaler, symbol, episode_count=3, shares=0, start_cash=20000, repl
         save_output('this_log_episodes', this_log)
     return bot, this_log
 
-def Test(bot, scaler, test_data, shares=0, start_cash=20000):
+def Test(bot, scaler, test_data, state_vars, shares=0, start_cash=20000):
     '''Notes of interest: This training procedure takes a cursor to train data, uses HER to
     Learn from past rewards. To summarize DQN, we just predict as we step through data.
     Periodically (I chose every replay_size steps), we fit on a batchsize of memories.
@@ -182,9 +182,8 @@ def Test(bot, scaler, test_data, shares=0, start_cash=20000):
         replay_size: Batch size for HER
     '''
     window = bot.NN_input_shape[0]
-    state_vars = ['change', 'close_vwap', 'high_low', 'open_close', 'volume']
     # Create Log
-    portfolio_log = pd.DataFrame(columns = ['Action', 'Shares', 'Cash', 'Profits', 'Close'])
+    portfolio_log = pd.DataFrame(columns = ['Value', 'Action', 'Shares', 'Cash', 'Profits', 'Close'])
     # Routine Setup
     options = ['buy', 'sell', 'hold']
     state = np.zeros((1, window, len(state_vars) + 2))
@@ -196,6 +195,7 @@ def Test(bot, scaler, test_data, shares=0, start_cash=20000):
     for item in test_data:
         curr_price = item['data']['close']
         curr_change = item['data']['change']
+        value = len(share_prices)*curr_price + cash
         # End Conditions (can't buy & can't sell)
         if cash < curr_price and len(share_prices) == 0:
             done = True
@@ -218,23 +218,21 @@ def Test(bot, scaler, test_data, shares=0, start_cash=20000):
         state[0][0,:] = temp_state
         if count >= window and not done: # Start Bot once state is full enough
             actions = bot.predict(previous_state)
-            print('State: \n', state, '\n')
-            print('Actions: \n', actions, '\n')
+            #print('State: \n', state, '\n')
+            print('Actions: ', actions, '  ', np.argmax(actions), '\n')
             action = np.argmax(actions)
             choice = options[action]
             # No Exploration
-            # Reward Engineering [Buy, Sell, Hold] (0, 1, 2)
-            if choice=='buy' and cash > curr_price: # Buy
+            # Reward Engineering [Buy, Sell, Hold/Do Nothing] (0, 1, 2)
+            if choice=='buy' and cash > curr_price:
                 cash -= curr_price
                 shares += 1
                 share_prices.append(curr_price)
-            elif choice=='sell' and shares > 0: # Sell
+            elif choice=='sell' and shares > 0: 
                 cash += curr_price
                 shares -= 1
                 profits += curr_price - share_prices.popleft()
-            else:
-                profits += curr_change
-            portfolio_log = portfolio_log.append({'Action':choice, 'Shares':shares, 'Cash':cash, 'Profits':profits, 'Close':curr_price}, ignore_index = True)
+            portfolio_log = portfolio_log.append({'Value':value, 'Action':choice, 'Shares':shares, 'Cash':cash, 'Profits':profits, 'Close':curr_price}, ignore_index = True)
         elif done:
             print('Bot Died...')
             break
@@ -247,22 +245,26 @@ def Test(bot, scaler, test_data, shares=0, start_cash=20000):
 
 if __name__ == "__main__":
     import pandas as pd
+    from keras.callbacks import TensorBoard
     from sklearn.externals import joblib 
     import pickle
     sys.path.append("./src")
     from Bots import Bot_LSTM
     from mongo import sstt_cursors
     # Specifics (Note alphabetic...for scaler)
-    state_vars = ['change', 'close_vwap', 'high_low', 'open_close', 'volume']
+    state_vars = ['change', 'close_vwap', 'high_low', 'open_close'] #, 'volume']
     bot = Bot_LSTM((14, len(state_vars)+2))
     scaler = joblib.load("resources/tech_scaler.pkl")
     '''Train'''
     # The flow of train is to train a bot on a stock and get back the bot, with a PD.DataFrame log
     # Ideally this would continue for numerous stocks for one bot.
     episodes = 1
-    bot, train_log = Train(bot, scaler, 'AAPL', episode_count=episodes)
+    bot, train_log_random = Train(bot, scaler, 'AMD', state_vars, episode_count=episodes)
     _, test_cursor = sstt_cursors('AAPL')
-    portfolio_log = Test(bot, scaler, test_cursor)
+    portfolio_log_random = Test(bot, scaler, test_cursor, state_vars)
+    bot, train_log = Train(bot, scaler, 'AMD', state_vars, episode_count=episodes, use_reward=True)
+    _, test_cursor = sstt_cursors('AAPL')
+    portfolio_log = Test(bot, scaler, test_cursor, state_vars)
     #train_log.drop(columns = 'Unnamed: 0', inplace=True)
     bot.my_save('./output')
     #save_output('train_aapl2', train_log)
@@ -277,8 +279,14 @@ if __name__ == "__main__":
     # plt.show()
     # Drop Cash
     import matplotlib.pyplot as plt 
-    train_log.drop(columns = 'Cash').plot(figsize = (14, 8))
-    portfolio_log.drop(columns = 'Cash').plot(figsize = (14, 8))
+    train_plot_random = train_log_random.drop(columns = ['Cash', 'Value'])
+    train_plot = train_log.drop(columns = ['Cash', 'Value'])
+    test_plot_random = portfolio_log_random.drop(columns = ['Cash', 'Value'])
+    test_plot = portfolio_log.drop(columns = ['Cash', 'Value'])
+    train_plot_random.plot()
+    train_plot.plot()
+    test_plot_random.plot()
+    test_plot.plot()
     plt.show()
 
     ''' Change Log
@@ -297,4 +305,28 @@ if __name__ == "__main__":
         Changed back to 32, 32, 8, action, LR = 0.1
         Loss Higher and Quicker than before.
         Predicts Hold Only!
+    Ran: Added activation into model
+        High error
+    Ran:  Changed reward from 0.1,0.1 to 1,1
+        Loss 25889 at 300
+        Tripling neuron unit numbers
+        Loss is now 219800 or 10x. Note. Sold Locked
+    Ran: Loss at 300 is now 14600, making smaller and deeper. Note: Buy locked
+        Loss at 300 is now 14000. Chasing error still. 
+        Hold Locked
+        Let me try increasing epsilon. Epsilon is like 80%. 
+        Loss linearly increasing. 3900 at 300
+    Ran: Lowered learning rate from 0.1 to 0.001. Also increasing epsilon to 0.9
+        Adding kernel regularizer L1 to all layers
+    Ran:
+        Loss still growing. Added about 15 ms 
+        Changed reward relu to xabx
+        Added back in epsilon decay because test has no epsilon.
+        Unless I forgot something loss is quite low.
+        Count 550, loss 13, epsilon 0.48 
+        Reward always negative...Wait had to remove reward = -curr_price from buy option
+    Ran: Loss still growing but pretty low. 
+        Running once with zero fitting. 
+        May do more reward engineering
+    Ran: Adding reward back in. Super Tiny xabx(profit)*0.001
     '''

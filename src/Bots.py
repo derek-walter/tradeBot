@@ -1,11 +1,12 @@
 # __init__()
 import keras
 from keras.models import Sequential
-from keras.layers import Dense
+from keras.layers import Dense, Activation
 from keras.optimizers import Adam
 from keras.models import load_model
 # LSTM __init__()
 from keras.layers import LSTM
+from keras import regularizers
 # save()
 from os.path import isdir
 from time import localtime, strftime
@@ -48,9 +49,9 @@ class Bot(Sequential):
         print('Creating Model...')
         # This inherits from Sequential. Don't think I need super() but may be more stable
         super().__init__()
-        self.add(Dense(units=64, input_shape=self.NN_input_shape, activation="relu"))
-        self.add(Dense(units=32, activation="relu"))
-        self.add(Dense(units=8, activation="relu"))
+        self.add(Dense(units=64, input_shape=self.NN_input_shape, activation="relu", kernel_regularizer=regularizers.l2(0.01)))
+        self.add(Dense(units=32, activation="relu", kernel_regularizer=regularizers.l2(0.01)))
+        self.add(Dense(units=8, activation="relu"), kernel_regularizer=regularizers.l2(0.01))
         self.add(Dense(self.action_space, activation="linear"))
         self.compile(loss="mse", optimizer=Adam(lr=0.001))
     
@@ -125,11 +126,47 @@ class Bot_LSTM(Sequential):
         print('Creating Model...')
         # This inherits from Sequential. Don't think I need super() but may be more stable
         super().__init__()
-        self.add(LSTM(units=32, input_shape=self.NN_input_shape, return_sequences = True))
+        self.add(Activation('tanh', input_shape=self.NN_input_shape))
+        self.add(LSTM(units=8, return_sequences = True))
+        self.add(LSTM(units=5))
+        self.add(Dense(self.action_space, activation="linear"))
+        self.compile(loss="mse", optimizer=Adam(lr=0.001))
+        '''Worked with this for a while. But too much variance on different stocks
+        super().__init__()
+        self.add(Activation('tanh', input_shape=self.NN_input_shape))
+        self.add(LSTM(units=8, return_sequences = True))
+        self.add(LSTM(units=8, return_sequences = True))
+        self.add(LSTM(units=8, return_sequences = True))
+        self.add(LSTM(units=5))
+        self.add(Dense(self.action_space, activation="linear"))
+        self.compile(loss="mse", optimizer=Adam(lr=0.001))
+        '''
+        '''Dropping more since error is dropping. Making deeper.
+        super().__init__()
+        self.add(Activation('tanh', input_shape=self.NN_input_shape))
+        self.add(LSTM(units=10, return_sequences = True))
+        self.add(LSTM(units=5))
+        self.add(Dense(self.action_space, activation="linear"))
+        self.compile(loss="mse", optimizer=Adam(lr=0.1))
+        '''
+        '''After trippling numbers loss skyrockets. Dropping an LSTM and nums
+        super().__init__()
+        self.add(Activation('tanh', input_shape=self.NN_input_shape))
+        self.add(LSTM(units=128, return_sequences = True))
+        self.add(LSTM(units=128, return_sequences=True))
+        self.add(LSTM(units=30))
+        self.add(Dense(self.action_space, activation="linear"))
+        self.compile(loss="mse", optimizer=Adam(lr=0.1))
+        '''
+        '''Loss High, added activation coming in. 
+        super().__init__()
+        self.add(Activation('tanh', input_shape=self.NN_input_shape))
+        self.add(LSTM(units=32, return_sequences = True))
         self.add(LSTM(units=32, return_sequences=True))
         self.add(LSTM(units=8))
         self.add(Dense(self.action_space, activation="linear"))
         self.compile(loss="mse", optimizer=Adam(lr=0.1))
+        '''
         '''Loss Skyrocketing, Predictions in Billions
         super().__init__()
         self.add(LSTM(units=32, input_shape=self.NN_input_shape, return_sequences = True))
