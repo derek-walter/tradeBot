@@ -154,33 +154,12 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                                     reward = 0.015
                                 else:
                                     reward = 0.01
-                            # else:
-                            #     if profit < -5:
-                            #         reward = -0.0015
-                            #     else:
-                            #         reward = -0.001
                         else:
                             profit = 0
                             reward = -0.005       
                     else: # Hold
                         reward = 0
-                # Old Reward Structure
-                #  if choice=='buy' and cash > curr_price: # Buy
-                #     cash -= curr_price
-                #     shares += 1
-                #     share_prices.append(curr_price)
-                #     if use_reward:
-                #         reward = 0.1*(-0.5) # Fees. Future Action-Value needs to be appended in HER
-                # elif choice=='sell' and shares > 0: # Sell
-                #     cash += curr_price
-                #     shares -= 1
-                #     profit = curr_price - share_prices.pop()
-                #     if use_reward:
-                #         reward = 0.01*(-0.5 + profit) # Fees - Profit. Dampened
-                # else:
-                #     if use_reward:
-                #         reward = 0.005*curr_change
-                # It is important to note the memory deque is 1000 long.
+                # It is important to note the memory deque is 1000 long. So stuff lost...
                 bot.memory.append((previous_state, action, reward, state, done))
                 action_log.append(actions[0])
                 # Hindsight Experience Replay
@@ -271,7 +250,6 @@ def Test(bot, scaler, test_data, state_vars, shares=0, start_cash=20000):
         state[0][0,:] = temp_state
         if count >= window and not done: # Start Bot once state is full enough
             actions = bot.predict(previous_state)
-            #print('State: \n', state, '\n')
             print('Actions: ', actions, '  ', np.argmax(actions), '\n')
             action = np.argmax(actions)
             choice = options[action]
@@ -323,21 +301,10 @@ def Test_random(bot, test_data, shares=0, start_cash=20000):
     done = False
     for item in test_data:
         curr_price = item['data']['close']
-        curr_change = item['data']['change']
         value = len(share_prices)*curr_price + cash
         # End Conditions (can't buy & can't sell)
         if cash < curr_price and len(share_prices) == 0:
             done = True
-        # Generating State Vars
-        if cash > curr_price:
-            can_buy = 1
-        else:
-            can_buy = 0
-        if len(share_prices) >= 1:
-            can_sell = 1
-        else:
-            can_sell = 0
-        cash_state = sigmoid(cash/start_cash)
         if count >= window and not done: # Start Bot once state is full enough
             action = random.randrange(len(options))
             choice = options[action]
@@ -379,44 +346,25 @@ if __name__ == "__main__":
     state_vars = ['change', 'close_vwap', 'high_low', 'open_close'] #, 'volume']
     bot = Bot_LSTM((14, len(state_vars)+3))
     scaler = joblib.load("resources/tech_scaler.pkl")
-    '''Train'''
     # The flow of train is to train a bot on a stock and get back the bot, with a PD.DataFrame log
     # Ideally this would continue for numerous stocks for one bot.
+    
+    # Train
     episodes = 1
-    #bot_r, train_log_random, action_log_random = Train(bot, scaler, 'INTC', state_vars, episode_count=episodes)
-    #action_df_random = pd.DataFrame(action_log_random, columns = ['buy', 'sell', 'hold'])
-    #_, test_cursor = sstt_cursors('INTC')
-    #portfolio_log_random = Test(bot_r, scaler, test_cursor, state_vars)
     bot, train_log, action_log = Train(bot, scaler, 'INTC', state_vars, episode_count=episodes, use_reward=True)
     action_df = pd.DataFrame(action_log, columns = ['buy', 'sell', 'hold'])
+    # Test and Random Choice Test
     _, test_cursor = sstt_cursors('INTC')
     portfolio_log = Test(bot, scaler, test_cursor, state_vars)
     _, test_cursor = sstt_cursors('INTC')
     random_log = Test_random(bot, test_cursor)
     #train_log.drop(columns = 'Unnamed: 0', inplace=True)
     bot.my_save('./output')
-    #save_output('train_aapl2', train_log)
-    #weights_filename = './output/bot_LSTM_2019-04-22{14-11}.h5'
-    # '''Test'''
-    #test_bot = Bot_LSTM((14, len(state_vars)+3), weights_filename=weights_filename)
-    #portfolio_log.drop(columns = 'Unnamed: 0', inplace=True)
-    #save_output('test_aapl2', portfolio_log)
-    # import matplotlib.pyplot as plt 
-    # train_log.plot(figsize = (14, 8))
-    # portfolio_log.plot(figsize = (14, 8))
-    # plt.show()
-    # Drop Cash
-    plt.rcParams.update({'font.size': 12, 'figure.subplot.hspace':0.1})
-    # fig, (ax1, ax2) = plt.subplots(2, 1, figsize = (11, 7), sharex=True)
-    # sns.lineplot(data = train_log_random[['Reward', 'Loss', 'Epsilon']].astype('float'), ax=ax1, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
-    # sns.lineplot(data = train_log_random['Shares'].astype('float'), ax=ax2, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
-    # ax1.set_title('Untrained Model', fontsize=15)
-    # ax2.set_xlabel('Timesteps', fontsize=15)
-    # ax2.text(700, 9, 'Shares',
-    #     verticalalignment='top', horizontalalignment='right',
-    #     bbox={'facecolor':'blue', 'alpha':0.2, 'pad':10}, fontsize=15)
-    # plt.savefig('plots/train_log_random_mse_c{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+    save_output('train_{symbol}_LSTM_Softmax', train_log)
+    save_output('test_{symbol}_LSTM_Softmax', portfolio_log)
 
+    # Plotting (Note: Softmax in title. If Activ. changed, change that)
+    plt.rcParams.update({'font.size': 12, 'figure.subplot.hspace':0.1})
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize = (11, 7), sharex=True)
     sns.lineplot(data = train_log[['Reward', 'Loss', 'Epsilon']].astype('float'), ax=ax1, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
     sns.lineplot(data = train_log['Shares'].astype('float'), ax=ax2, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
@@ -428,77 +376,27 @@ if __name__ == "__main__":
     plt.savefig('plots/training_log_mse_c{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
 
     plt.rcParams.update({'font.size': 12, 'figure.subplot.hspace':0.3})
-    fig, ax1 = plt.subplots(1, 1, figsize = (6, 6))#, sharex=True, sharey=True)
+    fig, ax1 = plt.subplots(1, 1, figsize = (6, 6))
     sns.lineplot(data = action_df.astype('float'), ax=ax1, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
-    #sns.lineplot(data = action_df_random.astype('float'), ax=ax2, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
     ax1.set_title('Training Model', fontsize=15)
-    #ax2.set_title('Untrained Model', fontsize=15)
     ax1.set_xlabel('Timesteps', fontsize=15)
-    #ax2.set_xlabel('Timesteps', fontsize=15)
     fig.suptitle('Action Probabilities Through Time (Softmax)', fontsize=22)
     plt.savefig('plots/action_log_mse_c{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())), bbox_inches = 'tight')
 
     plt.rcParams.update({'font.size': 12, 'figure.subplot.hspace':0.8})
     fig, ax = plt.subplots(2, 1, figsize = (11, 8))
     sns.lineplot(data = portfolio_log[['Shares', 'Profits']].astype('float'), ax=ax[0], style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=2))
-    #sns.lineplot(data = portfolio_log_random[['Shares', 'Profits']].astype('float'), ax=ax[1], style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=2))
     sns.lineplot(data = random_log[['Shares', 'Profits']].astype('float'), ax=ax[1], style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=2))
     ax[0].set_title('Trained Model', fontsize=15)
-    #ax[1].set_title('Untrained Model', fontsize=15)
     ax[1].set_title('Random Choice', fontsize=15)
     ax[1].set_xlabel('Timesteps', fontsize=13)
     plt.savefig('plots/shares_profits_mse_c{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
 
     fig, ax = plt.subplots(2, 1, figsize = (11, 8))
     sns.lineplot(data = portfolio_log[['Cash', 'Value']].astype('float'), ax=ax[0], style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=2))
-    #sns.lineplot(data = portfolio_log_random[['Cash', 'Value']].astype('float'), ax=ax[1], style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=2))
     sns.lineplot(data = random_log[['Cash', 'Value']].astype('float'), ax=ax[1], style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=2))
     ax[0].set_title('Trained Model', fontsize=15)
-    #ax[1].set_title('Untrained Model', fontsize=15)
     ax[1].set_title('Random Choice', fontsize=15)
     ax[1].set_xlabel('Timesteps', fontsize=13)
     plt.savefig('plots/cash_value_mse_c{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
     plt.show()
-
-    ''' Change Log
-    Added Plotting
-    Removed Saving for now
-    Ran: 
-        Changed from 32, 16, 8 to 64, 32, 8
-        Changing epsilon
-        Now predicting Sell Only
-    Ran: 
-        Changing Layer Structure
-        Two LSTM's, one Dense with linear, into output, all same 32
-        Changed LR to 0.1 from 0.001
-        Loss and Actions skyrocketted. Going back, keeping LR
-    Ran:
-        Changed back to 32, 32, 8, action, LR = 0.1
-        Loss Higher and Quicker than before.
-        Predicts Hold Only!
-    Ran: Added activation into model
-        High error
-    Ran:  Changed reward from 0.1,0.1 to 1,1
-        Loss 25889 at 300
-        Tripling neuron unit numbers
-        Loss is now 219800 or 10x. Note. Sold Locked
-    Ran: Loss at 300 is now 14600, making smaller and deeper. Note: Buy locked
-        Loss at 300 is now 14000. Chasing error still. 
-        Hold Locked
-        Let me try increasing epsilon. Epsilon is like 80%. 
-        Loss linearly increasing. 3900 at 300
-    Ran: Lowered learning rate from 0.1 to 0.001. Also increasing epsilon to 0.9
-        Adding kernel regularizer L1 to all layers
-    Ran:
-        Loss still growing. Added about 15 ms 
-        Changed reward relu to xabx
-        Added back in epsilon decay because test has no epsilon.
-        Unless I forgot something loss is quite low.
-        Count 550, loss 13, epsilon 0.48 
-        Reward always negative...Wait had to remove reward = -curr_price from buy option
-    Ran: Loss still growing but pretty low. 
-        Running once with zero fitting. 
-        May do more reward engineering
-    Ran: Adding reward back in. Super Tiny xabx(profit)*0.001
-    Recap: 
-    '''
