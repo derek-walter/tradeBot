@@ -18,6 +18,9 @@ def tanh(x):
 def xabx(x):
     return x/(1 + np.abs(x))
 
+def sigmoid(x):
+    return 1/(1+np.exp(-x))
+
 def testing123(model, NN_input_size, reset=False):
     '''Given a model and input dimensions, this generates data and retuns a history object.
     Parameters: model, the same NN_input_size used in Bots.py, reset model weights
@@ -66,9 +69,10 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
         raise ValueError('Window cannot be larger than replay size.')
     # Create Log
     this_log = pd.DataFrame(columns = ['Loss', 'Reward', 'Epsilon', 'Cash', 'Shares'])
+    action_log = []
     # Routine Setup
     epsilon = 1
-    discount = 0.1 #0.95
+    discount = 0.01 #0.95
     options = ['buy', 'sell', 'hold']
     for episode in range(episode_count):
         state = np.zeros((1, window, len(state_vars) + 2)) # Allocate memory. This is of (1, #, #) for single fitting
@@ -114,7 +118,7 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                     choice = options[action]
                 # Exploration Decay
                 if epsilon > 0.1:
-                    epsilon -= 0.001
+                    epsilon -= 0.002
                     print('Epsilon: ', round(epsilon, 5))
                 else:
                     epsilon = 0.1
@@ -124,15 +128,20 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                     cash -= curr_price
                     shares += 1
                     share_prices.append(curr_price)
-                    reward = 0
+                    if use_reward:
+                        reward = 0.1*(-1) # Fees. Future Action-Value needs to be appended in HER
                 elif choice=='sell' and shares > 0: # Sell
                     cash += curr_price
                     shares -= 1
-                    profit = curr_price - share_prices.popleft()
+                    profit = curr_price - share_prices.pop()
                     if use_reward:
-                        reward = xabx(profit)*0.001 # Future Action-Value needs to be appended in HER
+                        reward = 0.1*(-1 + profit) # Fees - Profit. Dampened
+                else:
+                    if use_reward:
+                        reward = 0 #0.01*curr_change
                 # It is important to note the memory deque is 1000 long.
                 bot.memory.append((previous_state, action, reward, state, done))
+                action_log.append(actions[0])
                 # Hindsight Experience Replay
                 if (count - window + 1) % replay_size == 0:
                     print('Replaying...')
@@ -142,16 +151,13 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                         targets = bot.predict(batch_state)
                         # Expected buy, sell, hold predictions
                         action_value = bot.predict(batch_new_state)
-                        if not batch_done:
+                        if use_reward:
                             # Adjusting target by return and discounted future return
                             # Must += instead of reassigning rewards because reward could be zero or negative
-                            if use_reward:
+                            if not batch_done:
                                 targets[0][batch_action] += batch_reward + discount*np.max(action_value)
                             else:
                                 targets[0][batch_action] += batch_reward
-                        else:
-                            # Just saving the return
-                            targets[0][batch_action] += batch_reward
                         history = bot.fit(batch_state, targets, batch_size=1, epochs=1, shuffle=False)
                         this_log = this_log.append({'Loss':history.history['loss'][0], 
                                                     'Reward':batch_reward, 
@@ -170,7 +176,7 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
             print('The Bot Survived.')
             print('Episode: ', episode)
         save_output('this_log_episodes', this_log)
-    return bot, this_log
+    return bot, this_log, action_log
 
 def Test(bot, scaler, test_data, state_vars, shares=0, start_cash=20000):
     '''Notes of interest: This training procedure takes a cursor to train data, uses HER to
@@ -236,7 +242,7 @@ def Test(bot, scaler, test_data, state_vars, shares=0, start_cash=20000):
                 cash += curr_price
                 shares -= 1
                 profits += curr_price - share_prices.popleft()
-            portfolio_log = portfolio_log.append({'Value':value, 'Action':choice, 'Shares':shares, 'Cash':cash, 'Profits':profits, 'Close':curr_price}, ignore_index = True)
+            portfolio_log = portfolio_log.append({'Value':value, 'Action':action, 'Shares':shares, 'Cash':cash, 'Profits':profits, 'Close':curr_price}, ignore_index = True)
         elif done:
             print('Bot Died...')
             break
@@ -298,7 +304,7 @@ def Test_random(bot, test_data, shares=0, start_cash=20000):
                 cash += curr_price
                 shares -= 1
                 profits += curr_price - share_prices.popleft()
-            portfolio_log = portfolio_log.append({'Value':value, 'Action':choice, 'Shares':shares, 'Cash':cash, 'Profits':profits, 'Close':curr_price}, ignore_index = True)
+            portfolio_log = portfolio_log.append({'Value':value, 'Action':action, 'Shares':shares, 'Cash':cash, 'Profits':profits, 'Close':curr_price}, ignore_index = True)
         elif done:
             print('Bot Died...')
             break
@@ -310,24 +316,31 @@ def Test_random(bot, test_data, shares=0, start_cash=20000):
 
 if __name__ == "__main__":
     import pandas as pd
+    from time import localtime, strftime
     from keras.callbacks import TensorBoard
     from sklearn.externals import joblib 
+    import matplotlib.pyplot as plt 
+    import seaborn as sns
     import pickle
     sys.path.append("./src")
     from Bots import Bot_LSTM
     from mongo import sstt_cursors
     # Specifics (Note alphabetic...for scaler)
     state_vars = ['change', 'close_vwap', 'high_low', 'open_close'] #, 'volume']
-    bot = Bot_LSTM((14, len(state_vars)+2))
+    bot = Bot_LSTM((2, len(state_vars)+2))
     scaler = joblib.load("resources/tech_scaler.pkl")
     '''Train'''
     # The flow of train is to train a bot on a stock and get back the bot, with a PD.DataFrame log
     # Ideally this would continue for numerous stocks for one bot.
     episodes = 1
-    bot_r, train_log_random = Train(bot, scaler, 'MSFT', state_vars, episode_count=episodes)
+    bot_r, train_log_random, action_log_random = Train(bot, scaler, 'MSFT', state_vars, episode_count=episodes)
+    action_df_random = pd.DataFrame(action_log_random, columns = ['buy', 'sell', 'hold'])
+    action_df_random.plot()
     _, test_cursor = sstt_cursors('MSFT')
     portfolio_log_random = Test(bot_r, scaler, test_cursor, state_vars)
-    bot, train_log = Train(bot, scaler, 'MSFT', state_vars, episode_count=episodes, use_reward=True)
+    bot, train_log, action_log = Train(bot, scaler, 'MSFT', state_vars, episode_count=episodes, use_reward=True)
+    action_df = pd.DataFrame(action_log, columns = ['buy', 'sell', 'hold'])
+    action_df.plot()
     _, test_cursor = sstt_cursors('MSFT')
     portfolio_log = Test(bot, scaler, test_cursor, state_vars)
     _, test_cursor = sstt_cursors('MSFT')
@@ -345,16 +358,57 @@ if __name__ == "__main__":
     # portfolio_log.plot(figsize = (14, 8))
     # plt.show()
     # Drop Cash
-    import matplotlib.pyplot as plt 
-    train_plot_random = train_log_random.drop(columns = ['Cash'])
-    train_plot = train_log.drop(columns = ['Cash'])
-    test_plot_random = portfolio_log_random.drop(columns = ['Cash', 'Value'])
-    test_plot = portfolio_log.drop(columns = ['Cash', 'Value'])
-    train_plot_random.plot(title = 'Train Plot Random')
-    train_plot.plot(title = 'Train Plot')
-    test_plot_random.plot(title = 'Test Plot Random')
-    test_plot.plot(title = 'Test Plot')
-    random_log.plot(title = 'Test Plot Random')
+    plt.rcParams.update({'font.size': 12, 'figure.subplot.hspace':0.1})
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize = (11, 7), sharex=True)
+    sns.lineplot(data = train_log_random[['Reward', 'Loss', 'Epsilon']].astype('float'), ax=ax1, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
+    sns.lineplot(data = train_log_random['Shares'].astype('float'), ax=ax2, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
+    ax1.set_title('Untrained Model', fontsize=15)
+    ax2.set_xlabel('Timesteps', fontsize=15)
+    ax2.text(700, 9, 'Shares',
+        verticalalignment='top', horizontalalignment='right',
+        bbox={'facecolor':'blue', 'alpha':0.2, 'pad':10}, fontsize=15)
+    plt.savefig('plots/train_log_random_bce{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+
+    fig, (ax1, ax2) = plt.subplots(2, 1, figsize = (11, 7), sharex=True)
+    sns.lineplot(data = train_log[['Reward', 'Loss', 'Epsilon']].astype('float'), ax=ax1, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
+    sns.lineplot(data = train_log['Shares'].astype('float'), ax=ax2, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
+    ax1.set_title('Training Model', fontsize=15)
+    ax2.set_xlabel('Timesteps', fontsize=15)
+    ax2.text(700, 9, 'Shares',
+        verticalalignment='top', horizontalalignment='right',
+        bbox={'facecolor':'blue', 'alpha':0.2, 'pad':10}, fontsize=15)
+    plt.savefig('plots/training_log_bce{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize = (12, 6), sharex=True, sharey=True)
+    sns.lineplot(data = action_df.astype('float'), ax=ax1, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
+    sns.lineplot(data = action_df_random.astype('float'), ax=ax2, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
+    ax1.set_title('Training Model', fontsize=15)
+    ax2.set_title('Untrained Model', fontsize=15)
+    ax1.set_xlabel('Timesteps', fontsize=15)
+    ax2.set_xlabel('Timesteps', fontsize=15)
+    fig.suptitle('Action Probabilities Through Time (Softmax)', fontsize=28)
+    plt.savefig('plots/action_log_bce{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+
+    plt.rcParams.update({'font.size': 12, 'figure.subplot.hspace':0.8})
+    fig, ax = plt.subplots(3, 1, figsize = (11, 8))
+    sns.lineplot(data = portfolio_log[['Shares', 'Profits']].astype('float'), ax=ax[0], style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=2))
+    sns.lineplot(data = portfolio_log_random[['Shares', 'Profits']].astype('float'), ax=ax[1], style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=2))
+    sns.lineplot(data = random_log[['Shares', 'Profits']].astype('float'), ax=ax[2], style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=2))
+    ax[0].set_title('Trained Model', fontsize=15)
+    ax[1].set_title('Untrained Model', fontsize=15)
+    ax[2].set_title('Random Choice', fontsize=15)
+    ax[2].set_xlabel('Timesteps', fontsize=13)
+    plt.savefig('plots/shares_profits_bce{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+
+    fig, ax = plt.subplots(3, 1, figsize = (11, 8))
+    sns.lineplot(data = portfolio_log[['Cash', 'Value']].astype('float'), ax=ax[0], style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=2))
+    sns.lineplot(data = portfolio_log_random[['Cash', 'Value']].astype('float'), ax=ax[1], style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=2))
+    sns.lineplot(data = random_log[['Cash', 'Value']].astype('float'), ax=ax[2], style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=2))
+    ax[0].set_title('Trained Model', fontsize=15)
+    ax[1].set_title('Untrained Model', fontsize=15)
+    ax[2].set_title('Random Choice', fontsize=15)
+    ax[2].set_xlabel('Timesteps', fontsize=13)
+    plt.savefig('plots/cash_value_bce{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
     plt.show()
 
     ''' Change Log
