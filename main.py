@@ -147,7 +147,7 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                             else:
                                 reward = -0.5
                         else:
-                            reward = -0.1
+                            reward = -0.3
                     else: # Hold
                         reward = 0
                 # Old Reward Structure
@@ -362,7 +362,7 @@ if __name__ == "__main__":
     '''Train'''
     # The flow of train is to train a bot on a stock and get back the bot, with a PD.DataFrame log
     # Ideally this would continue for numerous stocks for one bot.
-    episodes = 1
+    episodes = 3
     bot_r, train_log_random, action_log_random = Train(bot, scaler, 'INTC', state_vars, episode_count=episodes)
     action_df_random = pd.DataFrame(action_log_random, columns = ['buy', 'sell', 'hold'])
     _, test_cursor = sstt_cursors('INTC')
@@ -395,7 +395,7 @@ if __name__ == "__main__":
     ax2.text(700, 9, 'Shares',
         verticalalignment='top', horizontalalignment='right',
         bbox={'facecolor':'blue', 'alpha':0.2, 'pad':10}, fontsize=15)
-    plt.savefig('plots/train_log_random_bce1{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+    plt.savefig('plots/train_log_random_mse_c{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize = (11, 7), sharex=True)
     sns.lineplot(data = train_log[['Reward', 'Loss', 'Epsilon']].astype('float'), ax=ax1, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
@@ -405,7 +405,7 @@ if __name__ == "__main__":
     ax2.text(700, 9, 'Shares',
         verticalalignment='top', horizontalalignment='right',
         bbox={'facecolor':'blue', 'alpha':0.2, 'pad':10}, fontsize=15)
-    plt.savefig('plots/training_log_bce1{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+    plt.savefig('plots/training_log_mse_c{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
 
     plt.rcParams.update({'font.size': 12, 'figure.subplot.hspace':0.3})
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize = (12, 6), sharex=True, sharey=True)
@@ -415,8 +415,8 @@ if __name__ == "__main__":
     ax2.set_title('Untrained Model', fontsize=15)
     ax1.set_xlabel('Timesteps', fontsize=15)
     ax2.set_xlabel('Timesteps', fontsize=15)
-    fig.suptitle('Action Probabilities Through Time (Softmax)', fontsize=22)
-    plt.savefig('plots/action_log_bce1{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+    fig.suptitle('Action Probabilities Through Time (Linear)', fontsize=22)
+    plt.savefig('plots/action_log_mse_c{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
 
     plt.rcParams.update({'font.size': 12, 'figure.subplot.hspace':0.8})
     fig, ax = plt.subplots(3, 1, figsize = (11, 8))
@@ -427,7 +427,7 @@ if __name__ == "__main__":
     ax[1].set_title('Untrained Model', fontsize=15)
     ax[2].set_title('Random Choice', fontsize=15)
     ax[2].set_xlabel('Timesteps', fontsize=13)
-    plt.savefig('plots/shares_profits_bce1{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+    plt.savefig('plots/shares_profits_mse_c{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
 
     fig, ax = plt.subplots(3, 1, figsize = (11, 8))
     sns.lineplot(data = portfolio_log[['Cash', 'Value']].astype('float'), ax=ax[0], style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=2))
@@ -437,7 +437,7 @@ if __name__ == "__main__":
     ax[1].set_title('Untrained Model', fontsize=15)
     ax[2].set_title('Random Choice', fontsize=15)
     ax[2].set_xlabel('Timesteps', fontsize=13)
-    plt.savefig('plots/cash_value_bce1{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+    plt.savefig('plots/cash_value_mse_c{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
     plt.show()
 
     ''' Change Log
