@@ -54,7 +54,7 @@ class Bot(Sequential):
         self.add(Dense(units=32, activation="relu", kernel_regularizer=regularizers.l2(0.01)))
         self.add(Dense(units=8, activation="relu"), kernel_regularizer=regularizers.l2(0.01))
         self.add(Dense(self.action_space, activation="linear"))
-        self.compile(loss="mse", optimizer=Adam(lr=0.001))
+        self.compile(loss="mse", optimizer=Adam(lr=0.0001))
     
     def my_save(self, directory):
         '''Given a valid directory in scope, say resources (no slash) this method will

@@ -79,6 +79,8 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
         share_prices = deque([]) # Time Com. of O(1) for left popping...
         train_cursor, _ = sstt_cursors(symbol)
         cash = start_cash
+        profit = 0
+        profits = 0
         count = 0
         done = False
         for item in train_cursor:
@@ -128,6 +130,7 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                 reward = 0
                 if use_reward:
                     if choice == 'buy':
+                        # If Can Buy
                         if cash > curr_price:
                             cash -= curr_price
                             shares += 1
@@ -135,19 +138,29 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                         else:
                             reward = -0.1
                     elif choice == 'sell':
-                        if shares > 0:
-                            shares -= 1
+                        # If Can Sell
+                        if shares > 0 and len(share_prices) > 0:
+                            # Since Owns Shares
                             cash += curr_price
                             profit = curr_price - share_prices.popleft()
+                            profits += profit
+                            shares -= 1
+                            # Reward engineering on profit made
                             if profit >= 0:
                                 if profit > 10:
                                     reward = 2
+                                elif profit > 5:
+                                    reward = 1.5
                                 else:
                                     reward = 1
                             else:
-                                reward = -0.5
+                                if profit < -5:
+                                    reward = -1.5
+                                else:
+                                    reward = -1
                         else:
-                            reward = -0.3
+                            profit = 0
+                            reward = -0.1       
                     else: # Hold
                         reward = 0
                 # Old Reward Structure
@@ -270,7 +283,10 @@ def Test(bot, scaler, test_data, state_vars, shares=0, start_cash=20000):
             elif choice=='sell' and shares > 0: 
                 cash += curr_price
                 shares -= 1
-                profits += curr_price - share_prices.popleft()
+                try: 
+                    profits += curr_price - share_prices.popleft()
+                except IndexError:
+                    done = True
             portfolio_log = portfolio_log.append({'Value':value, 'Action':action, 'Shares':shares, 'Cash':cash, 'Profits':profits, 'Close':curr_price}, ignore_index = True)
         elif done:
             print('Bot Died...')
@@ -333,7 +349,10 @@ def Test_random(bot, test_data, shares=0, start_cash=20000):
             elif choice=='sell' and shares > 0: 
                 cash += curr_price
                 shares -= 1
-                profits += curr_price - share_prices.popleft()
+                try: 
+                    profits += curr_price - share_prices.popleft()
+                except IndexError:
+                    done = True
             portfolio_log = portfolio_log.append({'Value':value, 'Action':action, 'Shares':shares, 'Cash':cash, 'Profits':profits, 'Close':curr_price}, ignore_index = True)
         elif done:
             print('Bot Died...')
