@@ -93,6 +93,7 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                 done = True
             # Simple window: Have state going back in time, save that, shift down, ammend this step
             previous_state = state
+            print(previous_state)
             state[0][1:,:] = state[0][:-1, :]
             # Generating State Vars
             if cash > curr_price:
@@ -381,7 +382,7 @@ if __name__ == "__main__":
     '''Train'''
     # The flow of train is to train a bot on a stock and get back the bot, with a PD.DataFrame log
     # Ideally this would continue for numerous stocks for one bot.
-    episodes = 6
+    episodes = 1
     #bot_r, train_log_random, action_log_random = Train(bot, scaler, 'INTC', state_vars, episode_count=episodes)
     #action_df_random = pd.DataFrame(action_log_random, columns = ['buy', 'sell', 'hold'])
     #_, test_cursor = sstt_cursors('INTC')
@@ -435,7 +436,7 @@ if __name__ == "__main__":
     ax1.set_xlabel('Timesteps', fontsize=15)
     #ax2.set_xlabel('Timesteps', fontsize=15)
     fig.suptitle('Action Probabilities Through Time (Softmax)', fontsize=22)
-    plt.savefig('plots/action_log_mse_c{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+    plt.savefig('plots/action_log_mse_c{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())), bbox_inches = 'tight')
 
     plt.rcParams.update({'font.size': 12, 'figure.subplot.hspace':0.8})
     fig, ax = plt.subplots(2, 1, figsize = (11, 8))
