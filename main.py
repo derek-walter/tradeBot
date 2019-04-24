@@ -75,7 +75,7 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
     discount = 0.01 #0.95
     options = ['buy', 'sell', 'hold']
     for episode in range(episode_count):
-        state = np.zeros((1, window, len(state_vars) + 2)) # Allocate memory. This is of (1, #, #) for single fitting
+        state = np.zeros((1, window, len(state_vars) + 3)) # Allocate memory. This is of (1, #, #) for single fitting
         share_prices = deque([]) # Time Com. of O(1) for left popping...
         train_cursor, _ = sstt_cursors(symbol)
         cash = start_cash
@@ -101,10 +101,12 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                 can_sell = 1
             else:
                 can_sell = 0
+            cash_state = sigmoid(cash/start_cash)
             # NOTE: Scaler Transform requires alphabetical columns for proper prediction
             temp_state = [scaler.transform([[item['data'][j] for j in state_vars]])[0]]
             temp_state = np.array([np.append(temp_state[0], can_buy)])
             temp_state = np.array([np.append(temp_state[0], can_sell)])
+            temp_state = np.array([np.append(temp_state[0], cash_state)])
             state[0][0,:] = temp_state
             if count >= window: # Start Bot once state is full enough
                 actions = bot.predict(previous_state)
@@ -124,21 +126,46 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                     epsilon = 0.01
                 # Reward Engineering [Buy, Sell, Hold] (0, 1, 2)
                 reward = 0
-                if choice=='buy' and cash > curr_price: # Buy
-                    cash -= curr_price
-                    shares += 1
-                    share_prices.append(curr_price)
-                    if use_reward:
-                        reward = 0.1*(-0.5) # Fees. Future Action-Value needs to be appended in HER
-                elif choice=='sell' and shares > 0: # Sell
-                    cash += curr_price
-                    shares -= 1
-                    profit = curr_price - share_prices.pop()
-                    if use_reward:
-                        reward = 0.01*(-0.5 + profit) # Fees - Profit. Dampened
-                else:
-                    if use_reward:
-                        reward = 0.005*curr_change
+                if use_reward:
+                    if choice == 'buy':
+                        if cash > curr_price:
+                            cash -= curr_price
+                            shares += 1
+                            share_prices.append(curr_price)
+                        else:
+                            reward = -0.1
+                    elif choice == 'sell':
+                        if shares > 0:
+                            shares -= 1
+                            cash += curr_price
+                            profit = curr_price - share_prices.popleft()
+                            if profit >= 0:
+                                if profit > 10:
+                                    reward = 2
+                                else:
+                                    reward = 1
+                            else:
+                                reward = -0.5
+                        else:
+                            reward = -0.1
+                    else: # Hold
+                        reward = 0
+                # Old Reward Structure
+                #  if choice=='buy' and cash > curr_price: # Buy
+                #     cash -= curr_price
+                #     shares += 1
+                #     share_prices.append(curr_price)
+                #     if use_reward:
+                #         reward = 0.1*(-0.5) # Fees. Future Action-Value needs to be appended in HER
+                # elif choice=='sell' and shares > 0: # Sell
+                #     cash += curr_price
+                #     shares -= 1
+                #     profit = curr_price - share_prices.pop()
+                #     if use_reward:
+                #         reward = 0.01*(-0.5 + profit) # Fees - Profit. Dampened
+                # else:
+                #     if use_reward:
+                #         reward = 0.005*curr_change
                 # It is important to note the memory deque is 1000 long.
                 bot.memory.append((previous_state, action, reward, state, done))
                 action_log.append(actions[0])
@@ -196,7 +223,7 @@ def Test(bot, scaler, test_data, state_vars, shares=0, start_cash=20000):
     portfolio_log = pd.DataFrame(columns = ['Value', 'Action', 'Shares', 'Cash', 'Profits', 'Close'])
     # Routine Setup
     options = ['buy', 'sell', 'hold']
-    state = np.zeros((1, window, len(state_vars) + 2))
+    state = np.zeros((1, window, len(state_vars) + 3))
     share_prices = deque([]) # Time Com. of O(1) for left popping...
     cash = start_cash
     profits = 0
@@ -221,10 +248,12 @@ def Test(bot, scaler, test_data, state_vars, shares=0, start_cash=20000):
             can_sell = 1
         else:
             can_sell = 0
+        cash_state = sigmoid(cash/start_cash)
         # NOTE: Scaler Transform requires alphabetical columns for proper prediction
         temp_state = [scaler.transform([[item['data'][j] for j in state_vars]])[0]]
         temp_state = np.array([np.append(temp_state[0], can_buy)])
         temp_state = np.array([np.append(temp_state[0], can_sell)])
+        temp_state = np.array([np.append(temp_state[0], cash_state)])
         state[0][0,:] = temp_state
         if count >= window and not done: # Start Bot once state is full enough
             actions = bot.predict(previous_state)
@@ -291,6 +320,7 @@ def Test_random(bot, test_data, shares=0, start_cash=20000):
             can_sell = 1
         else:
             can_sell = 0
+        cash_state = sigmoid(cash/start_cash)
         if count >= window and not done: # Start Bot once state is full enough
             action = random.randrange(len(options))
             choice = options[action]
@@ -327,28 +357,28 @@ if __name__ == "__main__":
     from mongo import sstt_cursors
     # Specifics (Note alphabetic...for scaler)
     state_vars = ['change', 'close_vwap', 'high_low', 'open_close'] #, 'volume']
-    bot = Bot_LSTM((14, len(state_vars)+2))
+    bot = Bot_LSTM((14, len(state_vars)+3))
     scaler = joblib.load("resources/tech_scaler.pkl")
     '''Train'''
     # The flow of train is to train a bot on a stock and get back the bot, with a PD.DataFrame log
     # Ideally this would continue for numerous stocks for one bot.
     episodes = 1
-    bot_r, train_log_random, action_log_random = Train(bot, scaler, 'MSFT', state_vars, episode_count=episodes)
+    bot_r, train_log_random, action_log_random = Train(bot, scaler, 'INTC', state_vars, episode_count=episodes)
     action_df_random = pd.DataFrame(action_log_random, columns = ['buy', 'sell', 'hold'])
-    _, test_cursor = sstt_cursors('MSFT')
+    _, test_cursor = sstt_cursors('INTC')
     portfolio_log_random = Test(bot_r, scaler, test_cursor, state_vars)
-    bot, train_log, action_log = Train(bot, scaler, 'MSFT', state_vars, episode_count=episodes, use_reward=True)
+    bot, train_log, action_log = Train(bot, scaler, 'INTC', state_vars, episode_count=episodes, use_reward=True)
     action_df = pd.DataFrame(action_log, columns = ['buy', 'sell', 'hold'])
-    _, test_cursor = sstt_cursors('MSFT')
+    _, test_cursor = sstt_cursors('INTC')
     portfolio_log = Test(bot, scaler, test_cursor, state_vars)
-    _, test_cursor = sstt_cursors('MSFT')
+    _, test_cursor = sstt_cursors('INTC')
     random_log = Test_random(bot, test_cursor)
     #train_log.drop(columns = 'Unnamed: 0', inplace=True)
     bot.my_save('./output')
     #save_output('train_aapl2', train_log)
     #weights_filename = './output/bot_LSTM_2019-04-22{14-11}.h5'
     # '''Test'''
-    #test_bot = Bot_LSTM((14, len(state_vars)+2), weights_filename=weights_filename)
+    #test_bot = Bot_LSTM((14, len(state_vars)+3), weights_filename=weights_filename)
     #portfolio_log.drop(columns = 'Unnamed: 0', inplace=True)
     #save_output('test_aapl2', portfolio_log)
     # import matplotlib.pyplot as plt 

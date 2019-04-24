@@ -131,8 +131,8 @@ class Bot_LSTM(Sequential):
         self.add(LSTM(units=8, return_sequences = True, kernel_regularizer=regularizers.l2(0.01)))
         self.add(LSTM(units=8, kernel_regularizer=regularizers.l2(0.01)))
         self.add(Dropout(0.4))
-        self.add(Dense(self.action_space, activation="softmax"))
-        self.compile(loss="categorical_crossentropy", optimizer=Adam(lr=0.001))
+        self.add(Dense(self.action_space, activation="linear"))
+        self.compile(loss="mse", optimizer=Adam(lr=0.0001))
         '''Worked with this for a while. But too much variance on different stocks
         super().__init__()
         self.add(Activation('tanh', input_shape=self.NN_input_shape))
@@ -223,7 +223,7 @@ class Bot_LSTM(Sequential):
         return random.sample(self.memory, batch_size)
 '''End Bot Class - Usage: bot = Bot_LSTM((21,3)) < LSTM's require 3D data, see above LSTM docs '''
 
-'''Class Bot_LSTM
+'''Class Bot_CNN_LSTM
 A basic recurrent neural network bot that inherits from Keras Sequential and extends 
 for reinforcement learning and
 hindsight experience replay support. 
