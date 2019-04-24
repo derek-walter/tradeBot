@@ -54,7 +54,7 @@ class Bot(Sequential):
         self.add(Dense(units=32, activation="relu", kernel_regularizer=regularizers.l2(0.01)))
         self.add(Dense(units=8, activation="relu"), kernel_regularizer=regularizers.l2(0.01))
         self.add(Dense(self.action_space, activation="linear"))
-        self.compile(loss="mse", optimizer=Adam(lr=0.0001))
+        self.compile(loss="mse", optimizer=Adam(lr=0.00001))
     
     def my_save(self, directory):
         '''Given a valid directory in scope, say resources (no slash) this method will
@@ -130,9 +130,9 @@ class Bot_LSTM(Sequential):
         self.add(Activation('tanh', input_shape=self.NN_input_shape))
         self.add(LSTM(units=8, return_sequences = True, kernel_regularizer=regularizers.l2(0.01)))
         self.add(LSTM(units=8, kernel_regularizer=regularizers.l2(0.01)))
-        self.add(Dropout(0.4))
-        self.add(Dense(self.action_space, activation="linear"))
-        self.compile(loss="mse", optimizer=Adam(lr=0.0001))
+        self.add(Dropout(0.2))
+        self.add(Dense(self.action_space, activation="softmax"))
+        self.compile(loss="categorical_crossentropy", optimizer=Adam(lr=0.0001))
         '''Worked with this for a while. But too much variance on different stocks
         super().__init__()
         self.add(Activation('tanh', input_shape=self.NN_input_shape))

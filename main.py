@@ -122,7 +122,7 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                     choice = options[action]
                 # Exploration Decay
                 if epsilon > 0.01:
-                    epsilon -= 0.002
+                    epsilon -= 0.0005
                     print('Epsilon: ', round(epsilon, 5))
                 else:
                     epsilon = 0.01
@@ -136,7 +136,7 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                             shares += 1
                             share_prices.append(curr_price)
                         else:
-                            reward = -0.1
+                            reward = -0.005
                     elif choice == 'sell':
                         # If Can Sell
                         if shares > 0 and len(share_prices) > 0:
@@ -148,19 +148,19 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                             # Reward engineering on profit made
                             if profit >= 0:
                                 if profit > 10:
-                                    reward = 2
+                                    reward = 0.02
                                 elif profit > 5:
-                                    reward = 1.5
+                                    reward = 0.015
                                 else:
-                                    reward = 1
-                            else:
-                                if profit < -5:
-                                    reward = -1.5
-                                else:
-                                    reward = -1
+                                    reward = 0.01
+                            # else:
+                            #     if profit < -5:
+                            #         reward = -0.0015
+                            #     else:
+                            #         reward = -0.001
                         else:
                             profit = 0
-                            reward = -0.1       
+                            reward = -0.005       
                     else: # Hold
                         reward = 0
                 # Old Reward Structure
@@ -434,7 +434,7 @@ if __name__ == "__main__":
     #ax2.set_title('Untrained Model', fontsize=15)
     ax1.set_xlabel('Timesteps', fontsize=15)
     #ax2.set_xlabel('Timesteps', fontsize=15)
-    fig.suptitle('Action Probabilities Through Time (Linear)', fontsize=22)
+    fig.suptitle('Action Probabilities Through Time (Softmax)', fontsize=22)
     plt.savefig('plots/action_log_mse_c{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
 
     plt.rcParams.update({'font.size': 12, 'figure.subplot.hspace':0.8})
