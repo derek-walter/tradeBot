@@ -1,7 +1,7 @@
 import pymongo
 
 '''Query Single Stock Train Test'''
-def sstt_cursors(symbol, test_fraction = 0.20):
+def sstt_cursors(symbol, test_fraction = 0.40):
     '''Single Stock Train Test Cursors. Generates cursors for train [i.e. 2006-2010] and test [i.e. 2011]
     Parameters: Symbol, Test Fraction (Test is last test_fraction portion in time increasing data.)
     Returns: Cursors, Time Increasing, For both train and test on symbol
@@ -25,9 +25,11 @@ def sstt_cursors(symbol, test_fraction = 0.20):
     return train_data, test_data
 '''/Query Single Stock Train Test'''
 
-def db_to_ubiquitous_df(symbols, selection_vars):
+def db_to_ubiquitous_df(symbols, selection_vars, limit = 200, offset = 100):
     '''In need of a way to fit a general scaler, this creates an array of
-    raw values for selection_vars of interest across all stocks in the DB. 
+    raw values for selection_vars of interest across all stocks in the DB.
+    NOTE: It starts halfway through the data minus offset then takes "limit" 
+    number of items. This was done to not leak into the test data, and get general numbers.  
     '''
     import pandas as pd
     import pymongo
@@ -37,8 +39,14 @@ def db_to_ubiquitous_df(symbols, selection_vars):
     stocks = equities.stocks
     to_add = {i:[] for i in selection_vars}
     for symbol in tqdm(symbols):
+        size_curr = stocks.aggregate([{"$match":{"symbol":symbol}},{"$project": {"_id": 1, "count": {"$size": "$data"}}}])
+        size = size_curr.next()['count']
+        target = round(size/2) - offset
         curr_data = stocks.aggregate([{"$match":{"symbol":symbol}}, 
-                                        {"$unwind": "$data"}])
+                                        {"$unwind": "$data"}, 
+                                        {"$sort":{"data.date":-1}},
+                                        {"$skip":target},
+                                        {"$limit":limit}])
         for item in curr_data:
             for name in to_add.keys():
                 to_add[name].append(item['data'][name])
@@ -52,9 +60,9 @@ def make_general_scaler(df, save=True):
     Parameters: df from db_to_ubiquitous_df
     Returns: scaler, list_of_column_name_order
     '''
-    from sklearn.preprocessing import MinMaxScaler
+    from sklearn.preprocessing import StandardScaler
     from sklearn.externals import joblib 
-    scaler = MinMaxScaler(feature_range=(-1, 1))
+    scaler = StandardScaler()
     sorted_df = df.reindex(sorted(df.columns), axis=1)
     scaler.fit(sorted_df.values)
     if save:
@@ -71,7 +79,7 @@ if __name__ == "__main__":
     if choice == 'y':
         from tqdm import tqdm
         symbols = ['AAPL', 'MSFT', 'AMZN', 'INTC', 'AMD']
-        state_vars = ['change', 'close_vwap', 'high_low', 'open_close', 'volume']
+        state_vars = ['change', 'close_vwap', 'high_low', 'open_close'] #, 'volume']
         print('retrieving: {}\n'.format(symbols))
         df = db_to_ubiquitous_df(symbols, state_vars)
         scaler, column_order = make_general_scaler(df)
