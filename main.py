@@ -117,11 +117,11 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                     action = np.argmax(actions)
                     choice = options[action]
                 # Exploration Decay
-                if epsilon > 0.1:
+                if epsilon > 0.01:
                     epsilon -= 0.002
                     print('Epsilon: ', round(epsilon, 5))
                 else:
-                    epsilon = 0.1
+                    epsilon = 0.01
                 # Reward Engineering [Buy, Sell, Hold] (0, 1, 2)
                 reward = 0
                 if choice=='buy' and cash > curr_price: # Buy
@@ -129,16 +129,16 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                     shares += 1
                     share_prices.append(curr_price)
                     if use_reward:
-                        reward = 0.1*(-1) # Fees. Future Action-Value needs to be appended in HER
+                        reward = 0.1*(-0.5) # Fees. Future Action-Value needs to be appended in HER
                 elif choice=='sell' and shares > 0: # Sell
                     cash += curr_price
                     shares -= 1
                     profit = curr_price - share_prices.pop()
                     if use_reward:
-                        reward = 0.1*(-1 + profit) # Fees - Profit. Dampened
+                        reward = 0.01*(-0.5 + profit) # Fees - Profit. Dampened
                 else:
                     if use_reward:
-                        reward = 0 #0.01*curr_change
+                        reward = 0.005*curr_change
                 # It is important to note the memory deque is 1000 long.
                 bot.memory.append((previous_state, action, reward, state, done))
                 action_log.append(actions[0])
@@ -327,7 +327,7 @@ if __name__ == "__main__":
     from mongo import sstt_cursors
     # Specifics (Note alphabetic...for scaler)
     state_vars = ['change', 'close_vwap', 'high_low', 'open_close'] #, 'volume']
-    bot = Bot_LSTM((2, len(state_vars)+2))
+    bot = Bot_LSTM((14, len(state_vars)+2))
     scaler = joblib.load("resources/tech_scaler.pkl")
     '''Train'''
     # The flow of train is to train a bot on a stock and get back the bot, with a PD.DataFrame log
@@ -335,12 +335,10 @@ if __name__ == "__main__":
     episodes = 1
     bot_r, train_log_random, action_log_random = Train(bot, scaler, 'MSFT', state_vars, episode_count=episodes)
     action_df_random = pd.DataFrame(action_log_random, columns = ['buy', 'sell', 'hold'])
-    action_df_random.plot()
     _, test_cursor = sstt_cursors('MSFT')
     portfolio_log_random = Test(bot_r, scaler, test_cursor, state_vars)
     bot, train_log, action_log = Train(bot, scaler, 'MSFT', state_vars, episode_count=episodes, use_reward=True)
     action_df = pd.DataFrame(action_log, columns = ['buy', 'sell', 'hold'])
-    action_df.plot()
     _, test_cursor = sstt_cursors('MSFT')
     portfolio_log = Test(bot, scaler, test_cursor, state_vars)
     _, test_cursor = sstt_cursors('MSFT')
@@ -367,7 +365,7 @@ if __name__ == "__main__":
     ax2.text(700, 9, 'Shares',
         verticalalignment='top', horizontalalignment='right',
         bbox={'facecolor':'blue', 'alpha':0.2, 'pad':10}, fontsize=15)
-    plt.savefig('plots/train_log_random_bce{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+    plt.savefig('plots/train_log_random_bce1{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
 
     fig, (ax1, ax2) = plt.subplots(2, 1, figsize = (11, 7), sharex=True)
     sns.lineplot(data = train_log[['Reward', 'Loss', 'Epsilon']].astype('float'), ax=ax1, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
@@ -377,8 +375,9 @@ if __name__ == "__main__":
     ax2.text(700, 9, 'Shares',
         verticalalignment='top', horizontalalignment='right',
         bbox={'facecolor':'blue', 'alpha':0.2, 'pad':10}, fontsize=15)
-    plt.savefig('plots/training_log_bce{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+    plt.savefig('plots/training_log_bce1{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
 
+    plt.rcParams.update({'font.size': 12, 'figure.subplot.hspace':0.3})
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize = (12, 6), sharex=True, sharey=True)
     sns.lineplot(data = action_df.astype('float'), ax=ax1, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
     sns.lineplot(data = action_df_random.astype('float'), ax=ax2, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
@@ -386,8 +385,8 @@ if __name__ == "__main__":
     ax2.set_title('Untrained Model', fontsize=15)
     ax1.set_xlabel('Timesteps', fontsize=15)
     ax2.set_xlabel('Timesteps', fontsize=15)
-    fig.suptitle('Action Probabilities Through Time (Softmax)', fontsize=28)
-    plt.savefig('plots/action_log_bce{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+    fig.suptitle('Action Probabilities Through Time (Softmax)', fontsize=22)
+    plt.savefig('plots/action_log_bce1{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
 
     plt.rcParams.update({'font.size': 12, 'figure.subplot.hspace':0.8})
     fig, ax = plt.subplots(3, 1, figsize = (11, 8))
@@ -398,7 +397,7 @@ if __name__ == "__main__":
     ax[1].set_title('Untrained Model', fontsize=15)
     ax[2].set_title('Random Choice', fontsize=15)
     ax[2].set_xlabel('Timesteps', fontsize=13)
-    plt.savefig('plots/shares_profits_bce{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+    plt.savefig('plots/shares_profits_bce1{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
 
     fig, ax = plt.subplots(3, 1, figsize = (11, 8))
     sns.lineplot(data = portfolio_log[['Cash', 'Value']].astype('float'), ax=ax[0], style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=2))
@@ -408,7 +407,7 @@ if __name__ == "__main__":
     ax[1].set_title('Untrained Model', fontsize=15)
     ax[2].set_title('Random Choice', fontsize=15)
     ax[2].set_xlabel('Timesteps', fontsize=13)
-    plt.savefig('plots/cash_value_bce{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
+    plt.savefig('plots/cash_value_bce1{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())))
     plt.show()
 
     ''' Change Log
