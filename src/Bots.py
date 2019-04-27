@@ -132,11 +132,10 @@ class Bot_LSTM(Sequential):
         # This inherits from Sequential. Don't think I need super() but may be more stable
         super().__init__()
         self.add(Activation('tanh', input_shape=self.NN_input_shape))
-        self.add(LSTM(units=8, return_sequences = True, kernel_regularizer=regularizers.l2(0.01)))
-        self.add(LSTM(units=8, kernel_regularizer=regularizers.l2(0.01)))
-        self.add(Dropout(0.2))
-        self.add(Dense(self.action_space, activation="softmax"))
-        self.compile(loss="categorical_crossentropy", optimizer=Adam(lr=0.0001))
+        self.add(LSTM(units=8, return_sequences = True))
+        self.add(LSTM(units=8))
+        self.add(Dense(self.action_space, activation="linear"))
+        self.compile(loss="mse", optimizer=Adam(lr=0.0001))
 
     def my_save(self, directory):
         '''Given a valid directory in scope, say resources (no slash) this method will
