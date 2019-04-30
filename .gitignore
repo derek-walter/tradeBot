@@ -1,3 +1,10 @@
+src/__pycache__/
+logs/
+plots/
 output/
+*.pyc
 *.pem
 *.ipynb
+*.csv
+*.h5
+
