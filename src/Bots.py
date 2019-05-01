@@ -129,7 +129,7 @@ class Bot_LSTM(Sequential):
 
     def make(self):
         print('Creating Model...')
-        # This inherits from Sequential. Don't think I need super() but may be more stable
+        # This inherits from Sequential. 
         super().__init__()
         self.add(Activation('tanh', input_shape=self.NN_input_shape))
         self.add(LSTM(units=8, return_sequences = True))
@@ -208,7 +208,7 @@ class Bot_CNN_LSTM(Sequential): # Didn't get there yet
     def make(self):
         print('Creating Model...')
         # NOTE: Thas not been implemented or tested. Serves to remind of future functionality
-        # This inherits from Sequential. Don't think I need super() but may be more stable
+        # This inherits from Sequential.
         super().__init__()
         self.add(Activation('tanh', input_shape=self.NN_input_shape))
         self.add(TimeDistributed(Conv2D(12, kernel_size=(3, 7), activation='relu')))
