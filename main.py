@@ -27,7 +27,7 @@ def testing123(model, NN_input_size, reset=False):
     Returns: History object
     '''
     # Dummy Data
-    X_train = np.random.random((1000, *NN_input_size))
+    X_train = np.random.random((1000, NN_input_size[0], NN_input_size[1]))
     y_train = np.random.random((1000, NN_input_size[-1]))
     historyObject = model.fit(X_train, y_train, batch_size=100, epochs=1, validation_split=0.25)
     if reset:
@@ -83,8 +83,9 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
         profits = 0
         count = 0
         done = False
+        hold_penalty = 0
         for item in train_cursor:
-            print(item['data']['date'])
+            #print(item['data']['date'])
             curr_price = item['data']['close']
             curr_change = item['data']['change']
             value = len(share_prices)*curr_price + cash
@@ -93,7 +94,7 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                 done = True
             # Simple window: Have state going back in time, save that, shift down, ammend this step
             previous_state = state
-            print(previous_state)
+            #print(previous_state)
             state[0][1:,:] = state[0][:-1, :]
             # Generating State Vars
             if cash > curr_price:
@@ -114,6 +115,8 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
             if count >= window: # Start Bot once state is full enough
                 actions = bot.predict(previous_state)
                 # Exploration
+                if count > window:
+                    previous_choice = choice
                 if random.random() < epsilon:
                     action = random.randrange(len(options))
                     choice = options[action]
@@ -131,13 +134,13 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                 reward = 0
                 if use_reward:
                     if choice == 'buy':
-                        # If Can Buy
+                        # Linear Rewrite: If Can Buy
                         if cash > curr_price:
                             cash -= curr_price
                             shares += 1
                             share_prices.append(curr_price)
                         else:
-                            reward = -0.005
+                            reward = -0.5
                     elif choice == 'sell':
                         # If Can Sell
                         if shares > 0 and len(share_prices) > 0:
@@ -145,20 +148,25 @@ def Train(bot, scaler, symbol, state_vars, episode_count=3, shares=0, start_cash
                             cash += curr_price
                             profit = curr_price - share_prices.popleft()
                             profits += profit
-                            shares -= 1
+                            shares -= -0.1
                             # Reward engineering on profit made
                             if profit >= 0:
                                 if profit > 10:
-                                    reward = 0.02
+                                    reward = 2
                                 elif profit > 5:
-                                    reward = 0.015
+                                    reward = 1
                                 else:
-                                    reward = 0.01
+                                    reward = 0.5
                         else:
                             profit = 0
-                            reward = -0.005       
+                            reward = -0.5    
                     else: # Hold
-                        reward = 0
+                        if count > window:
+                            if previous_choice == 'hold':
+                                hold_penalty -= 0.1
+                                reward = hold_penalty
+                            else:
+                                hold_penalty = 0
                 # It is important to note the memory deque is 1000 long. So stuff lost...
                 bot.memory.append((previous_state, action, reward, state, done))
                 action_log.append(actions[0])
@@ -350,18 +358,19 @@ if __name__ == "__main__":
     # Ideally this would continue for numerous stocks for one bot.
     
     # Train
-    episodes = 1
-    bot, train_log, action_log = Train(bot, scaler, 'INTC', state_vars, episode_count=episodes, use_reward=True)
+    episodes = 3
+    symbol = 'MSFT'
+    bot, train_log, action_log = Train(bot, scaler, symbol, state_vars, episode_count=episodes, use_reward=True)
     action_df = pd.DataFrame(action_log, columns = ['buy', 'sell', 'hold'])
     # Test and Random Choice Test
-    _, test_cursor = sstt_cursors('INTC')
+    _, test_cursor = sstt_cursors(symbol)
     portfolio_log = Test(bot, scaler, test_cursor, state_vars)
-    _, test_cursor = sstt_cursors('INTC')
+    _, test_cursor = sstt_cursors(symbol)
     random_log = Test_random(bot, test_cursor)
     #train_log.drop(columns = 'Unnamed: 0', inplace=True)
-    bot.my_save('./output')
-    save_output('train_{symbol}_LSTM_Softmax', train_log)
-    save_output('test_{symbol}_LSTM_Softmax', portfolio_log)
+    #bot.my_save('./output')
+    #save_output('train_{symbol}_LSTM_Softmax', train_log)
+    #save_output('test_{symbol}_LSTM_Softmax', portfolio_log)
 
     # Plotting (Note: Softmax in title. If Activ. changed, change that)
     plt.rcParams.update({'font.size': 12, 'figure.subplot.hspace':0.1})
@@ -380,7 +389,7 @@ if __name__ == "__main__":
     sns.lineplot(data = action_df.astype('float'), ax=ax1, style='choice', palette=sns.cubehelix_palette(light=.8, n_colors=3))
     ax1.set_title('Training Model', fontsize=15)
     ax1.set_xlabel('Timesteps', fontsize=15)
-    fig.suptitle('Action Probabilities Through Time (Softmax)', fontsize=22)
+    fig.suptitle('Action Probabilities Through Time (Linear)', fontsize=22)
     plt.savefig('plots/action_log_mse_c{}.png'.format(strftime("%Y-%m-%d{%H:%M}", localtime())), bbox_inches = 'tight')
 
     plt.rcParams.update({'font.size': 12, 'figure.subplot.hspace':0.8})
